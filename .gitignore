@@ -14,8 +14,11 @@ egg-info
 .idea
 .pycharm.debug
 .cache
+
+# Checkpoint files
 .pth
 .ckpt
+.pt
 
 # Virtual environment files
 venv
@@ -48,6 +51,7 @@ lightning_logs
 .LSOverride
 Desktop.ini
 
+# Data and Wandb files
 data/
 logs/
 z_mine/
@@ -56,3 +60,4 @@ artifacts/
 saved_models/
 reference/
 pths/
+checkpoints/
