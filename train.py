@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torchvision import models
 import wandb
 from dataset import XRayDataset, CLASSES
-from trainer_new import train, set_seed
+from trainer import train, set_seed
 
 
 def parse_args():
