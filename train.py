@@ -31,21 +31,13 @@ def parse_args():
                         help='총 에폭 수')
     parser.add_argument('--val_interval', type=int, default=1,
                         help='검증 주기')
+    parser.add_argument('--wandb_name', type=str, default='fcn_resnet50',
+                        help='wandb에 표시될 실험 이름')
     
     return parser.parse_args()
 
 def main():
     args = parse_args()
-    
-    # Wandb 초기화
-    wandb.init(
-      project="bone_segmentation", 
-      config = {
-        "learning_rate": args.lr,
-        "batch_size": args.batch_size,
-        "max_epochs": args.max_epochs,
-        "image_size": args.image_size,
-      })
     
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
@@ -83,6 +75,18 @@ def main():
     # 손실 함수 및 옵티마이저 설정
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-6)
+
+    # Wandb 초기화
+    wandb.init(
+        project="hand_bone_segmentation",
+        name=args.wandb_name,
+        # wandb 초기화
+        config = {
+            "learning_rate": args.lr,
+            "epochs": args.max_epochs,
+            "batch_size": args.batch_size,
+            "image_size": args.image_size,
+        })
     
     # 학습 시작
     train(model, train_loader, valid_loader, criterion, optimizer, args.max_epochs, args.val_interval, args.save_dir)
