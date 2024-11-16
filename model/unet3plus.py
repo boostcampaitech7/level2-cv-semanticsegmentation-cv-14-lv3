@@ -191,19 +191,19 @@ class UNet3Plus(nn.Module):
 
         pred = self.resize(self.head(de_out[-1]), h, w)
         
-        if self.training:
-            pred = {'final_pred': pred}
-            if self.aux_head is not None:
-                for ii, de in enumerate(de_out[:-1]):
-                    if ii == 0:
-                        if self.cls is not None:
-                            pred['cls'] = self.cls(de).squeeze(3).squeeze(2)  # (B,N,1,1)->(B,N)
-                            have_obj = torch.argmax(pred['cls'], dim=1)
-                    head_key = f'aux_head{ii}'
-                    if head_key in self.aux_head:
-                        de: torch.Tensor = de * have_obj
-                        # de = self.dotProduct(de,have_obj)
-                        pred[f'aux{ii}'] = self.resize(self.aux_head[head_key](de), h, w)
+        pred = {'out': pred}
+        if self.aux_head is not None:
+            for ii, de in enumerate(de_out[:-1]):
+                if ii == 0:
+                    if self.cls is not None:
+                        pred['cls'] = self.cls(de).squeeze(3).squeeze(2)  # (B,N,1,1)->(B,N)
+                        have_obj = torch.argmax(pred['cls'], dim=1)
+                head_key = f'aux_head{ii}'
+                if head_key in self.aux_head:
+                    de: torch.Tensor = de * have_obj
+                    # de = self.dotProduct(de,have_obj)
+                    pred[f'aux{ii}'] = self.resize(self.aux_head[head_key](de), h, w)
+            
         return pred
     
     def dotProduct(self, seg, cls):
