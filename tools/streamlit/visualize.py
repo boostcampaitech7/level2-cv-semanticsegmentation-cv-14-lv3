@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-## Visualization
+
 # 색상 리스트
 PALETTE = [
     (220, 20, 60), (119, 11, 32), (0, 0, 142), (0, 0, 230), (106, 0, 228),
@@ -15,16 +15,16 @@ PALETTE = [
 def label2rgb(label):
     image_size = label.shape[1:] + (3, )
     image = np.zeros(image_size, dtype=np.uint8)
-    
+
     for i, class_label in enumerate(label):
         image[class_label == 1] = PALETTE[i]
-        
+
     return image
 
 def visualize_prediction(image, pred_mask, true_mask=None):
     """
     예측 결과를 시각화하는 함수
-    
+
     Args:
         image: 원본 이미지 (H, W, 3)
         pred_mask: 예측 마스크 (C, H, W)
@@ -44,6 +44,6 @@ def visualize_prediction(image, pred_mask, true_mask=None):
         ax2.set_title('Prediction')
         ax3.imshow(label2rgb(true_mask))
         ax3.set_title('Ground Truth')
-    
+
     plt.tight_layout()
     return fig

@@ -49,11 +49,11 @@ def overlay_masks(image, image_name, annotations, visualize, opacity):
         class_name = row["class"]
         rle = row["rle"]
         color = get_class_color(class_name)
-        
+
         # 마스크 생성
         mask = rle_to_mask(rle, image.shape[:2])
         mask = rotate_and_flip_mask(mask, angle=90, flip_horizontal=True)
-        
+
         # 마스크 오버레이 (투명도 적용)
         overlay_color = np.array(color) * opacity
         image[mask == 1] = (image[mask == 1] * (1 - opacity) + overlay_color).astype(np.uint8)
@@ -96,22 +96,22 @@ st.selectbox("Select ID Folder", id_folders, index=st.session_state.selected_id_
 if selected_id:
     image_dir = os.path.join(test_data_dir, selected_id)
     image_files = [f for f in os.listdir(image_dir) if f.endswith('.png') or f.endswith('.jpg')]
-    
+
     # CSV 파일에 있는 이미지 이름과 일치하는 파일만 필터링
     matched_images = [img for img in image_files if img in annotations['image_name'].values]
-    
+
     # 왼손, 오른손 이미지를 순서대로 표시
     if matched_images:
         cols = st.columns(2)
-        
+
         for idx, image_file in enumerate(matched_images):
             image_path = os.path.join(image_dir, image_file)
             image = cv2.imread(image_path)
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            
+
             # 마스크 시각화 여부 및 투명도 설정에 따른 처리
             image = overlay_masks(image, image_file, annotations, visualize, opacity)
-            
+
             # 왼손/오른손 구분하여 이미지 표시
             if idx < len(cols):
                 cols[idx].image(image, caption=f"{'Left Hand' if idx == 0 else 'Right Hand'} ({image_file})", use_column_width=True)
