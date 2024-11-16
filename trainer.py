@@ -41,7 +41,7 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
                 images, masks = images.cuda(), masks.cuda()
                 model = model.cuda()
                 
-                outputs = model(images)['out']
+                outputs = model(images)['final_pred']
                 loss = criterion(outputs, masks)
                 
                 # 클래스별 손실 계산
