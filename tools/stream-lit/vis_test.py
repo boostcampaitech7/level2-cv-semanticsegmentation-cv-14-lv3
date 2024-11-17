@@ -5,24 +5,22 @@ import pandas as pd
 import streamlit as st
 import argparse
 
-# 클래스와 색상 정의
 CLASSES = [
-    'finger-1', 'finger-2', 'finger-3', 'finger-4', 'finger-5',
-    'finger-6', 'finger-7', 'finger-8', 'finger-9', 'finger-10',
-    'finger-11', 'finger-12', 'finger-13', 'finger-14', 'finger-15',
-    'finger-16', 'finger-17', 'finger-18', 'finger-19', 'Trapezium',
-    'Trapezoid', 'Capitate', 'Hamate', 'Scaphoid', 'Lunate',
-    'Triquetrum', 'Pisiform', 'Radius', 'Ulna',
+    'Trapezium', 'Trapezoid', 'Triquetrum', 'Pisiform'
 ]
 
 PALETTE = [
-    (220, 20, 60), (119, 11, 32), (0, 0, 142), (0, 0, 230), (106, 0, 228),
-    (0, 60, 100), (0, 80, 100), (0, 0, 70), (0, 0, 192), (250, 170, 30),
-    (100, 170, 30), (220, 220, 0), (175, 116, 175), (250, 0, 30), (165, 42, 42),
-    (255, 77, 255), (0, 226, 252), (182, 182, 255), (0, 82, 0), (120, 166, 157),
-    (110, 76, 0), (174, 57, 255), (199, 100, 0), (72, 0, 118), (255, 179, 240),
-    (0, 125, 92), (209, 0, 151), (188, 208, 182), (0, 220, 176),
+    (120, 166, 157), (110, 76, 0), (0, 125, 92), (209, 0, 151)
 ]
+'''
+CLASSES = [
+    'Trapezium', 'Trapezoid', 'Triquetrum', 'Pisiform'
+]
+
+PALETTE = [
+    (120, 166, 157), (110, 76, 0), (0, 125, 92), (209, 0, 151)
+]
+'''
 
 # 클래스-색상 매핑 딕셔너리 생성
 CLASS_COLORS = dict(zip(CLASSES, PALETTE))
@@ -47,7 +45,6 @@ def parse_args():
 
     return args
 
-# CSV 파일 불러오기 - 'rle'가 polygon을 생성하지 못햇다면, blanck('')로 지정함.
 def load_annotations(csv_path):
     try:
         annotations = pd.read_csv(csv_path)
@@ -58,7 +55,6 @@ def load_annotations(csv_path):
         st.error(f"CSV file not found: {csv_path}")
         return pd.DataFrame(columns=["image_name", "class", "rle"])
 
-# Decoding : RLE(polygon) -> Image
 def rle_to_mask(rle, shape):
     mask = np.zeros(shape[0] * shape[1], dtype=np.uint8)
 
@@ -75,7 +71,6 @@ def rle_to_mask(rle, shape):
 
     return mask.reshape(shape).T
 
-# 마스크 회전 및 반전 함수
 def rotate_and_flip_mask(mask, angle=90, flip_horizontal=False):
     if angle == 90:
         mask = np.rot90(mask, k=3)
@@ -86,14 +81,18 @@ def rotate_and_flip_mask(mask, angle=90, flip_horizontal=False):
     return mask
 
 def get_class_color(label):
-    # 클래스에 해당하는 고정된 색상 반환
-    return CLASS_COLORS.get(label, (128, 128, 128))  # 매핑되지 않은 클래스는 회색으로 표시
+    # 지정된 클래스에 대해서만 색상 반환
+    return CLASS_COLORS.get(label, None)
 
 def overlay_masks(image, image_name, annotations, visualize, opacity):
     if not visualize or annotations.empty:
         return image
 
     image_annotations = annotations[annotations["image_name"] == image_name]
+
+    # 지정된 클래스만 필터링
+    image_annotations = image_annotations[image_annotations["class"].isin(CLASSES)]
+
     for _, row in image_annotations.iterrows():
         class_name = row["class"]
         rle = row["rle"]
@@ -102,6 +101,8 @@ def overlay_masks(image, image_name, annotations, visualize, opacity):
             continue
 
         color = get_class_color(class_name)
+        if color is None:  # 지정된 클래스가 아닌 경우 건너뛰기
+            continue
 
         try:
             mask = rle_to_mask(rle, image.shape[:2])
@@ -127,22 +128,24 @@ def main():
 
     if not annotations.empty:
         with st.expander("Show CSV Data Info"):
-            st.write("Number of annotations:", len(annotations))
-            st.write("Number of empty RLE entries:", annotations['rle'].isna().sum() + (annotations['rle'] == '').sum())
-            st.write("Preview of CSV data:")
-            st.dataframe(annotations.head())
+            st.write("Total number of annotations:", len(annotations))
+            st.write("Number of visualized classes:", len(CLASSES))
+            visualized_annotations = annotations[annotations['class'].isin(CLASSES)]
+            st.write("Number of visualized annotations:", len(visualized_annotations))
+            st.write("Preview of visualized annotations:")
+            st.dataframe(visualized_annotations.head())
 
     visualize = st.sidebar.checkbox("Show Annotations (Masks)", value=True)
     opacity = st.sidebar.slider("Mask Overlay Opacity", 0.0, 1.0, 0.5)
 
     # 색상 범례 표시
     if visualize:
-        with st.sidebar.expander("Color Legend"):
-            for class_name, color in CLASS_COLORS.items():
-                st.markdown(
-                    f'<div style="background-color: rgb{color}; padding: 5px; margin: 2px; color: white;">{class_name}</div>',
-                    unsafe_allow_html=True
-                )
+        st.sidebar.markdown("### Visualized Classes")
+        for class_name, color in CLASS_COLORS.items():
+            st.sidebar.markdown(
+                f'<div style="background-color: rgb{color}; padding: 5px; margin: 2px; color: white;">{class_name}</div>',
+                unsafe_allow_html=True
+            )
 
     try:
         id_folders = sorted([d for d in os.listdir(args.data_dir) if os.path.isdir(os.path.join(args.data_dir, d))])
@@ -151,15 +154,12 @@ def main():
         id_folders = []
 
     if id_folders:
-        # ID 선택 상태 관리
         if "selected_id_index" not in st.session_state:
             st.session_state.selected_id_index = 0
 
-        # 현재 선택된 ID
         selected_id = id_folders[st.session_state.selected_id_index]
         st.selectbox("Select ID Folder", id_folders, index=st.session_state.selected_id_index, key="selectbox_id")
 
-        # 이전/다음 버튼
         col1, col2 = st.columns([1, 1])
         with col1:
             if st.button("⬅️ Previous") and st.session_state.selected_id_index > 0:
@@ -168,7 +168,6 @@ def main():
             if st.button("➡️ Next") and st.session_state.selected_id_index < len(id_folders) - 1:
                 st.session_state.selected_id_index += 1
 
-        # 이미지 표시
         if selected_id:
             image_dir = os.path.join(args.data_dir, selected_id)
             image_files = sorted([f for f in os.listdir(image_dir) if f.endswith('.png') or f.endswith('.jpg')])
