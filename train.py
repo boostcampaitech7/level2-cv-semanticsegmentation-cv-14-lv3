@@ -43,7 +43,7 @@ def parse_args():
                         help='총 에폭 수')
     parser.add_argument('--val_interval', type=int, default=1,
                         help='검증 주기')
-    parser.add_argument('--wandb_name', type=str, default='unet3p_resnet50',
+    parser.add_argument('--wandb_name', type=str, default='unet3p_resnet50_aug',
                         help='wandb에 표시될 실험 이름')
 
     return parser.parse_args()
@@ -104,7 +104,7 @@ def main():
     set_seed()
 
     # 데이터셋 및 데이터로더 설정
-    train_transform = A.Compose([A.Resize(args.image_size, args.image_size)],
+    train_transform = A.Compose([A.Resize(args.image_size, args.image_size),
                                 A.ElasticTransform(
                                     alpha=10.0,
                                     sigma=10.0,
