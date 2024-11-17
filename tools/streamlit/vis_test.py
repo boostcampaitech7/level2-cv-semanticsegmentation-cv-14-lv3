@@ -6,6 +6,28 @@ import streamlit as st
 import argparse
 from skimage.draw import polygon
 
+# 클래스와 색상 정의
+CLASSES = [
+    'finger-1', 'finger-2', 'finger-3', 'finger-4', 'finger-5',
+    'finger-6', 'finger-7', 'finger-8', 'finger-9', 'finger-10',
+    'finger-11', 'finger-12', 'finger-13', 'finger-14', 'finger-15',
+    'finger-16', 'finger-17', 'finger-18', 'finger-19', 'Trapezium',
+    'Trapezoid', 'Capitate', 'Hamate', 'Scaphoid', 'Lunate',
+    'Triquetrum', 'Pisiform', 'Radius', 'Ulna',
+]
+
+PALETTE = [
+    (220, 20, 60), (119, 11, 32), (0, 0, 142), (0, 0, 230), (106, 0, 228),
+    (0, 60, 100), (0, 80, 100), (0, 0, 70), (0, 0, 192), (250, 170, 30),
+    (100, 170, 30), (220, 220, 0), (175, 116, 175), (250, 0, 30), (165, 42, 42),
+    (255, 77, 255), (0, 226, 252), (182, 182, 255), (0, 82, 0), (120, 166, 157),
+    (110, 76, 0), (174, 57, 255), (199, 100, 0), (72, 0, 118), (255, 179, 240),
+    (0, 125, 92), (209, 0, 151), (188, 208, 182), (0, 220, 176),
+]
+
+# 클래스-색상 매핑 딕셔너리 생성
+CLASS_COLORS = dict(zip(CLASSES, PALETTE))
+
 def parse_args():
     parser = argparse.ArgumentParser(description='X-ray Image Viewer with RLE Annotation')
     parser.add_argument('--data_dir',
@@ -17,14 +39,11 @@ def parse_args():
                        default='output.csv',
                        help='inference.py를 통해서 생성한 CSV 파일을 입력해주세요.')
 
-    # Streamlit passes its own command line arguments, so we need to handle them
     try:
-        # Get all args except streamlit's own args
         streamlit_args = ['streamlit', 'run']
         user_args = [arg for arg in os.sys.argv[1:] if not any(s in arg for s in streamlit_args)]
         args = parser.parse_args(user_args)
     except:
-        # If parsing fails, use default values
         args = parser.parse_args([])
 
     return args
@@ -67,13 +86,10 @@ def rotate_and_flip_mask(mask, angle=90, flip_horizontal=False):
         mask = np.fliplr(mask)
     return mask
 
-# 각 클래스에 대해 무작위 색상 생성
-def get_class_color(label, class_colors={}):
-    if label not in class_colors:
-        class_colors[label] = tuple(np.random.randint(0, 255, 3).tolist())
-    return class_colors[label]
+def get_class_color(label):
+    # 클래스에 해당하는 고정된 색상 반환
+    return CLASS_COLORS.get(label, (128, 128, 128))  # 매핑되지 않은 클래스는 회색으로 표시
 
-# Annotation 마스크를 이미지에 오버레이
 def overlay_masks(image, image_name, annotations, visualize, opacity):
     if not visualize or annotations.empty:
         return image
@@ -101,21 +117,15 @@ def overlay_masks(image, image_name, annotations, visualize, opacity):
     return image
 
 def main():
-    # 커맨드 라인 인자 파싱
     args = parse_args()
-
-    # Streamlit 앱 구성
     st.title("X-ray Image Viewer")
 
-    # 현재 설정된 경로 표시
     with st.expander("Current Settings"):
         st.write(f"Data Directory: {args.data_dir}")
         st.write(f"CSV File Path: {args.csv_path}")
 
-    # Annotation 데이터 불러오기
     annotations = load_annotations(args.csv_path)
 
-    # CSV 데이터 정보 표시
     if not annotations.empty:
         with st.expander("Show CSV Data Info"):
             st.write("Number of annotations:", len(annotations))
@@ -123,11 +133,18 @@ def main():
             st.write("Preview of CSV data:")
             st.dataframe(annotations.head())
 
-    # 마스크 시각화 설정
     visualize = st.sidebar.checkbox("Show Annotations (Masks)", value=True)
     opacity = st.sidebar.slider("Mask Overlay Opacity", 0.0, 1.0, 0.5)
 
-    # ID 폴더 목록 불러오기
+    # 색상 범례 표시
+    if visualize:
+        with st.sidebar.expander("Color Legend"):
+            for class_name, color in CLASS_COLORS.items():
+                st.markdown(
+                    f'<div style="background-color: rgb{color}; padding: 5px; margin: 2px; color: white;">{class_name}</div>',
+                    unsafe_allow_html=True
+                )
+
     try:
         id_folders = sorted([d for d in os.listdir(args.data_dir) if os.path.isdir(os.path.join(args.data_dir, d))])
     except FileNotFoundError:
