@@ -1,5 +1,3 @@
-# trainer.py
-
 import os
 import albumentations as A
 import argparse

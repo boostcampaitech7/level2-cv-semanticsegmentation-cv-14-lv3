@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import argparse
-from skimage.draw import polygon
 
 # 클래스와 색상 정의
 CLASSES = [
