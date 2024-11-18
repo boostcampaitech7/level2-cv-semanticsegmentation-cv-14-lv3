@@ -42,6 +42,7 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
                 model = model.cuda()
 
                 outputs = model(images)['out']
+                # outputs = model(images)
                 loss = criterion(outputs, masks)
 
                 # 클래스별 손실 계산
@@ -128,8 +129,6 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
     total_str = convert_seconds_to_hms(total_time)
     print(f'Total training completed in {total_str}.')
 
-    wandb.finish()
-
 def validation(epoch, model, data_loader, criterion, thr=0.5, num_worst_samples=4):
     print(f'Start validation #{epoch:2d}')
     model.eval()
@@ -143,6 +142,7 @@ def validation(epoch, model, data_loader, criterion, thr=0.5, num_worst_samples=
         for step, (images, masks) in tqdm(enumerate(data_loader), total=len(data_loader)):
             images, masks = images.cuda(), masks.cuda()
             outputs = model(images)['out']
+            # outputs = model(images)
 
             output_h, output_w = outputs.size(-2), outputs.size(-1)
             mask_h, mask_w = masks.size(-2), masks.size(-1)
