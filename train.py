@@ -30,11 +30,11 @@ def parse_args():
                         help='Train image가 있는 디렉토리 경로')
     parser.add_argument('--label_dir', type=str, default='/data/ephemeral/home/data/train/outputs_json',
                         help='Train label json 파일이 있는 디렉토리 경로')
-    parser.add_argument('--image_size', type=int, default=512,
+    parser.add_argument('--image_size', type=int, default=1024,
                         help='이미지 Resize')
     parser.add_argument('--save_dir', type=str, default='./checkpoints',
                         help='모델 저장 경로')
-    parser.add_argument('--batch_size', type=int, default=2,
+    parser.add_argument('--batch_size', type=int, default=4,
                         help='배치 크기')
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='학습률')
