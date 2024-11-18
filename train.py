@@ -15,7 +15,6 @@ from pytorch_msssim import ms_ssim
 
 # U-Net3+
 from model import build_unet3plus, UNet3Plus
-from utils.loss import build_u3p_loss
 ''' [About gpu_trainer.py]
 - gpu_trainer : Validation 연산에 GPU를 이용합니다.
 - 이를 사용하기 위해 아래 주석을 해제하고, "gpu_trainer.py" 파일을 사용해주세요.
@@ -31,11 +30,11 @@ def parse_args():
                         help='Train image가 있는 디렉토리 경로')
     parser.add_argument('--label_dir', type=str, default='/data/ephemeral/home/data/train/outputs_json',
                         help='Train label json 파일이 있는 디렉토리 경로')
-    parser.add_argument('--image_size', type=int, default=1024,
+    parser.add_argument('--image_size', type=int, default=512,
                         help='이미지 Resize')
     parser.add_argument('--save_dir', type=str, default='./checkpoints',
                         help='모델 저장 경로')
-    parser.add_argument('--batch_size', type=int, default=4,
+    parser.add_argument('--batch_size', type=int, default=2,
                         help='배치 크기')
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='학습률')
@@ -43,7 +42,7 @@ def parse_args():
                         help='총 에폭 수')
     parser.add_argument('--val_interval', type=int, default=1,
                         help='검증 주기')
-    parser.add_argument('--wandb_name', type=str, default='unet3p_resnet50_aug',
+    parser.add_argument('--wandb_name', type=str, default='unet3p_1_test',
                         help='wandb에 표시될 실험 이름')
 
     return parser.parse_args()
