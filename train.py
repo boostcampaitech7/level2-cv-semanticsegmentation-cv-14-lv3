@@ -43,7 +43,7 @@ def parse_args():
                         help='총 에폭 수')
     parser.add_argument('--val_interval', type=int, default=1,
                         help='검증 주기')
-    parser.add_argument('--wandb_name', type=str, default='unet3p_1_test',
+    parser.add_argument('--wandb_name', type=str, default='u3p_effnet_test',
                         help='wandb에 표시될 실험 이름')
 
     return parser.parse_args()
@@ -132,10 +132,8 @@ def main():
         drop_last=False
     )
 
-    # 모델 설정
-    # model = models.segmentation.fcn_resnet50(pretrained=True)
-    model = build_unet3plus(num_classes=29, encoder ='efficient-b5', pretrained=True)
-    # model.classifier[4] = nn.Conv2d(512, len(CLASSES), kernel_size=1)
+    # Set model
+    model = build_unet3plus(num_classes=29, encoder='efficientnet-b5', pretrained=True)
     model = model.cuda()
 
     # 손실 함수 및 옵티마이저 설정

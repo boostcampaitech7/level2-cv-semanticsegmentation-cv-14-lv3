@@ -169,17 +169,86 @@ class U3PEfficientNetDecoder(nn.Module):
         return dec_map_list
 
 class UNet3Plus(nn.Module):
+
     def __init__(self,
                  num_classes=1,
                  skip_ch=64,
                  aux_losses=2,
-                 encoder=U3PEfficientNetEncoder,
+                 encoder: U3PEfficientNetEncoder = None,
                  channels=[3, 64, 128, 256, 512, 1024],
                  dropout=0.3,
                  transpose_final=False,
                  use_cgm=True,
                  fast_up=True):
         super().__init__()
+
+        self.encoder = U3PEncoderDefault(channels) if encoder is None else encoder
+        channels = self.encoder.channels
+        num_decoders = len(channels) - 1
+        decoder_ch = skip_ch * num_decoders
+
+        self.decoder = U3PEfficientNetDecoder(self.encoder.channels[1:], skip_ch=skip_ch, dropout=dropout, fast_up=fast_up)
+        self.decoder.apply(weight_init)
+
+        self.cls = nn.Sequential(
+                    nn.Dropout(p=0.5),
+                    nn.Conv2d(channels[-1], 2, 1),
+                    nn.AdaptiveMaxPool2d(1),
+                    nn.Sigmoid()
+                ) if use_cgm else None
+
+        if transpose_final:
+            self.head = nn.Sequential(
+                nn.ConvTranspose2d(decoder_ch, num_classes, kernel_size=4, stride = 2, padding=1, bias=False),
+            )
+        else:
+            self.head = nn.Conv2d(decoder_ch, num_classes, 3, padding=1)
+        self.head.apply(weight_init)
+
+        if aux_losses > 0:
+            self.aux_head = nn.ModuleDict()
+            layer_indices = np.arange(num_decoders - aux_losses - 1, num_decoders - 1)
+            for ii in layer_indices:
+                ch = decoder_ch if ii != 0 else channels[-1]
+                self.aux_head.add_module(f'aux_head{ii}', nn.Conv2d(ch, num_classes, 3, padding=1))
+            self.aux_head.apply(weight_init)
+        else:
+            self.aux_head = None
+
+    def forward(self, x):
+        _, _, h, w = x.shape
+        de_out = self.decoder(self.encoder(x))
+        have_obj = 1
+
+        pred = self.resize(self.head(de_out[-1]), h, w)
+
+        pred = {'out': pred}
+        if self.aux_head is not None:
+            for ii, de in enumerate(de_out[:-1]):
+                if ii == 0:
+                    if self.cls is not None:
+                        pred['cls'] = self.cls(de).squeeze(3).squeeze(2)  # (B,N,1,1)->(B,N)
+                        have_obj = torch.argmax(pred['cls'], dim=1)
+                head_key = f'aux_head{ii}'
+                if head_key in self.aux_head:
+                    de: torch.Tensor = de * have_obj
+                    # de = self.dotProduct(de,have_obj)
+                    pred[f'aux{ii}'] = self.resize(self.aux_head[head_key](de), h, w)
+
+        return pred
+
+    def dotProduct(self, seg, cls):
+        B, N, H, W = seg.size()
+        seg = seg.view(B, N, H * W)
+        final = torch.einsum("ijk,ij->ijk", [seg, cls])
+        final = final.view(B, N, H, W)
+        return final
+
+    def resize(self, x, h, w) -> torch.Tensor:
+        _, _, xh, xw = x.shape
+        if xh != h or xw != w:
+            x = F.interpolate(x, size=(h, w), mode='bilinear', align_corners=True)
+        return x
 
 
 if __name__ == '__main__':
