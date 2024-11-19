@@ -5,6 +5,7 @@ from torchvision.models.feature_extraction import create_feature_extractor, get_
 
 from utils.weight_init import weight_init
 from .unet3plus import UNet3Plus
+from .duck_net import DuckNet, init_weights_with_kaiming_uniform
 
 
 resnets = ['resnet18', 'resnet34', 'resnet50', 'resnet101']
@@ -75,3 +76,7 @@ def build_unet3plus(num_classes, encoder='default', skip_ch=64, aux_losses=2, us
     model = UNet3Plus(num_classes, skip_ch, aux_losses, encoder, use_cgm=use_cgm, dropout=dropout, transpose_final=transpose_final, fast_up=fast_up)
     return model
 
+def build_ducknet(in_channels=3, num_classes=29, depth=5, init_features=17, normalization='batch', interpolation='nearest', out_activation=None, use_multiplier=False):
+    model = DuckNet(in_channels=in_channels, out_channels=num_classes, depth=depth, init_features=init_features, normalization=normalization, interpolation=interpolation, out_activation=out_activation, use_multiplier=use_multiplier)
+    model.apply(init_weights_with_kaiming_uniform) # default init is xaiver uniform
+    return model
