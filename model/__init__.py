@@ -29,20 +29,21 @@ resnet_cfg = {
 
 class U3PResNetEncoder(nn.Module):
     '''
-    ResNet encoder wrapper 
+    ResNet encoder wrapper
     '''
     def __init__(self, backbone='resnet18', pretrained=False) -> None:
         super().__init__()
+
+        # Step 1. Select the encoder
         resnet: ResNet = globals()[backbone](pretrained=pretrained)
         cfg = resnet_cfg['resnet18'] if backbone in ['resnet18', 'resnet34'] else resnet_cfg['resnet50']
+
+        # Step 2. Check if pretrained
         if not pretrained:
             resnet.apply(weight_init)
         self.backbone = create_feature_extractor(resnet, return_nodes=resnet_cfg['return_nodes'])
 
-        # print(resnet)
-        # input = torch.randn(1, 3, 320, 320)
-        # out = self.backbone(input)
-
+        # Step 3. Layer to compress features to match channel sizes
         self.compress_convs = nn.ModuleList()
         for ii, (fe_ch, ch) in enumerate(zip(cfg['fe_channels'], cfg['channels'])):
             if fe_ch != ch:
@@ -50,7 +51,8 @@ class U3PResNetEncoder(nn.Module):
             else:
                 self.compress_convs.append(nn.Identity())
         self.channels = [3] + cfg['channels']
-        
+
+    # Foward propagation
     def forward(self, x):
         out = self.backbone(x)
         for ii, compress in enumerate(self.compress_convs):
@@ -74,4 +76,3 @@ def build_unet3plus(num_classes, encoder='default', skip_ch=64, aux_losses=2, us
         raise ValueError(f'Unsupported backbone : {encoder}')
     model = UNet3Plus(num_classes, skip_ch, aux_losses, encoder, use_cgm=use_cgm, dropout=dropout, transpose_final=transpose_final, fast_up=fast_up)
     return model
-

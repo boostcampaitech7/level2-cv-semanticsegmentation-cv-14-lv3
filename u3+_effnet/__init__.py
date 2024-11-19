@@ -34,7 +34,7 @@ class U3PEfficientNetEncoder(nn.Module):
     '''
     EfficientNet encoder wrapper
     '''
-    def __init__(self, backbone='efficientnet-b0', pretrained=False) -> None:
+    def __init__(self, backbone='efficientnet-b5', pretrained=False) -> None:
         super().__init__()
 
         # Step 1. Select the encoder
@@ -64,6 +64,7 @@ class U3PEfficientNetEncoder(nn.Module):
                 self.compress_convs.append(nn.Identity())
         self.channels = [3] + cfg['channels']
 
+    # Foward propagation
     def forward(self, x):
         out = self.backbone(x)
         for ii, compress in enumerate(self.compress_convs):
