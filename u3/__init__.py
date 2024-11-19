@@ -74,13 +74,7 @@ class U3PEfficientNetEncoder(nn.Module):
 
 
 def build_unet3plus(num_classes, encoder='default', skip_ch=64, aux_losses=2, use_cgm=False, pretrained=False, dropout=0.3) -> UNet3Plus:
-    if encoder == 'default':
-        encoder = None
-        aux_losses = 4
-        dropout = 0.0
-        transpose_final = False
-        fast_up = False
-    elif encoder in efficientnets:
+    if encoder in efficientnets:
         encoder = U3PEfficientNetEncoder(backbone=encoder, pretrained=pretrained)
         transpose_final = True
         fast_up = True

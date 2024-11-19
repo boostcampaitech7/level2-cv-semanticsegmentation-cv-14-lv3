@@ -87,13 +87,93 @@ class FullScaleSkipConnect(nn.Module):
 
 
 
+class U3PEfficientNetEncoder(nn.Module):
+    def __init__(self, channels=[3, 64, 128, 256, 512, 1024], num_block=2, backbone='efficientnet-b5', pretrained=False):
+        super().__init__()
+
+        # Step 1. Select the encoder
+        if backbone == 'efficientnet-b0':
+            efficientnet = efficientnet_b0(pretrained=pretrained)
+            cfg = efficientnet_cfg['efficientnet-b0']
+        elif backbone == 'efficientnet-b5':
+            efficientnet = efficientnet_b5(pretrained=pretrained)
+            cfg = efficientnet_cfg['efficientnet-b5']
+        elif backbone == 'efficientnet-b6':
+            efficientnet = efficientnet_b6(pretrained=pretrained)
+            cfg = efficientnet_cfg['efficientnet-b6']
+        else:
+            raise ValueError(f'Unsupported backbone : {backbone}')
+
+        # Step 2. Check if pretrained
+        if not pretrained:
+            efficientnet.apply(weight_init)
+        self.backbone = create_feature_extractor(efficientnet, return_nodes=efficientnet_cfg['return_nodes'])
+
+        # Step 3. Layer to compress features to match channel sizes
+        self.compress_convs = nn.ModuleList()
+        for fe_ch, ch in zip(cfg['fe_channels'], cfg['channels']):
+            if fe_ch != ch:
+                self.compress_convs.append(nn.Conv2d(fe_ch, ch, 1, bias=False))
+            else:
+                self.compress_convs.append(nn.Identity())
+        self.channels = channels  # Keep the original channels format for compatibility
+
+    def forward(self, x):
+        # Get backbone features
+        out = self.backbone(x)
+
+        # Compress features to match channel sizes
+        encoder_out = []
+        for ii, compress in enumerate(self.compress_convs):
+            compressed_feature = compress(out[f'layer{ii}'])
+            encoder_out.append(compressed_feature)
+
+        return encoder_out
+
+class U3PEfficientNetDecoder(nn.Module):
+    def __init__(self, en_channels=[64, 128, 256, 512, 1024], skip_ch=64, dropout=0.3, fast_up=True):
+        super().__init__()
+
+        # Keep the same initialization format as U3PDecoder
+        self.decoders = nn.ModuleDict()
+        en_channels = en_channels[::-1]
+        num_en_ch = len(en_channels)
+
+        for ii in range(num_en_ch):
+            if ii == 0:
+                # First decoding output is identity mapping of last encoder map
+                self.decoders['decoder1'] = nn.Identity()
+                continue
+
+            self.decoders[f'decoder{ii+1}'] = FullScaleSkipConnect(
+                en_channels[ii:],
+                en_scales=2 ** np.arange(0, num_en_ch-ii),
+                num_dec=ii,
+                skip_ch=skip_ch,
+                bottom_dec_ch=en_channels[0],
+                dropout=dropout,
+                fast_up=fast_up
+            )
+
+    def forward(self, enc_map_list: List[torch.Tensor]):
+        dec_map_list = []
+        enc_map_list = enc_map_list[::-1]
+
+        for ii, layer_key in enumerate(self.decoders):
+            layer = self.decoders[layer_key]
+            if ii == 0:
+                dec_map_list.append(layer(enc_map_list[0]))
+                continue
+            dec_map_list.append(layer(enc_map_list[ii:], dec_map_list))
+
+        return dec_map_list
 
 class UNet3Plus(nn.Module):
     def __init__(self,
                  num_classes=1,
                  skip_ch=64,
                  aux_losses=2,
-                 encoder: U3PEncoderDefault = None,
+                 encoder=U3PEfficientNetEncoder,
                  channels=[3, 64, 128, 256, 512, 1024],
                  dropout=0.3,
                  transpose_final=False,
