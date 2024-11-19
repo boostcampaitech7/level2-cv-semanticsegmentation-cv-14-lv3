@@ -182,7 +182,7 @@ class UNet3Plus(nn.Module):
                  fast_up=True):
         super().__init__()
 
-        self.encoder = U3PEncoderDefault(channels) if encoder is None else encoder
+        self.encoder = U3PEfficientNetEncoder(channels) if encoder is None else encoder
         channels = self.encoder.channels
         num_decoders = len(channels) - 1
         decoder_ch = skip_ch * num_decoders
