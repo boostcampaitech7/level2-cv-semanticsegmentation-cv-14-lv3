@@ -9,11 +9,11 @@ from .unet3plus import UNet3Plus
 efficientnets = ['efficientnet-b0', 'efficientnet-b5', 'efficientnet-b6']
 efficientnet_cfg = {
     'return_nodes': {
-        'relu': 'layer0',
-        'features.2': 'layer1',
-        'features.3': 'layer2',
-        'features.4': 'layer3',
-        'features.5': 'layer4',
+        'features.1.0.block.2': 'layer0',   # First stage
+        'features.2.2.block.2': 'layer1',   # Second stage
+        'features.3.2.block.2': 'layer2',   # Third stage
+        'features.4.2.block.2': 'layer3',   # Fourth stage
+        'features.6.8.block.2': 'layer4',   # Final stage
     },
     'efficientnet-b0': {
         'fe_channels': [32, 24, 40, 112, 1280],
@@ -28,6 +28,8 @@ efficientnet_cfg = {
         'channels': [32, 40, 72, 144, 192],
     }
 }
+
+
 
 ##### DEVIDING LINE #####
 class U3PEfficientNetEncoder(nn.Module):
@@ -75,11 +77,12 @@ class U3PEfficientNetEncoder(nn.Module):
 
 def build_unet3plus(num_classes, encoder='default', skip_ch=64, aux_losses=2, use_cgm=False, pretrained=False, dropout=0.3) -> UNet3Plus:
     if encoder in efficientnets:
-        encoder = U3PEfficientNetEncoder(backbone=encoder, pretrained=pretrained)
+        encoder = U3PEfficientNetEncoder(backbone=encoder, pretrained=False)
         transpose_final = True
         fast_up = True
     else:
         raise ValueError(f'Unsupported backbone : {encoder}')
 
     model = UNet3Plus(num_classes, skip_ch, aux_losses, encoder, use_cgm=use_cgm, dropout=dropout, transpose_final=transpose_final, fast_up=fast_up)
+
     return model
