@@ -7,9 +7,13 @@ from torch.utils.data import DataLoader
 from torchvision import models
 import wandb
 from dataset import XRayDataset, CLASSES
+# pip install segmentation-models-pytorch
+import segmentation_models_pytorch as smp
+from trainer import train, set_seed
 import torch
 import torch.nn.functional as F
-from pytorch_msssim import ms_ssim
+from loss import get_loss 
+import numpy as np
 
 # U-Net3+
 from model import build_unet3plus, UNet3Plus
@@ -32,127 +36,116 @@ def parse_args():
                         help='이미지 Resize')
     parser.add_argument('--save_dir', type=str, default='./checkpoints',
                         help='모델 저장 경로')
-    parser.add_argument('--batch_size', type=int, default=4,
+    parser.add_argument('--batch_size', type=int, default=2,
                         help='배치 크기')
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='학습률')
-    parser.add_argument('--max_epochs', type=int, default=50,
+    parser.add_argument('--max_epochs', type=int, default=100,
                         help='총 에폭 수')
     parser.add_argument('--val_interval', type=int, default=1,
                         help='검증 주기')
-    parser.add_argument('--wandb_name', type=str, default='unet3p_1_test',
+    parser.add_argument('--wandb_name', type=str, default='test',
                         help='wandb에 표시될 실험 이름')
+
+    # K-fold Cross Validation
+    parser.add_argument('--use_cv', action='store_true',
+                        help='전체 fold 학습 여부')
+    parser.add_argument('--n_splits', type=int, default=5, 
+                        help='K-fold에서 분할할 fold 개수')
+    parser.add_argument('--fold', type=int, default=0, 
+                        help='특정 fold 학습시 fold 번호')
 
     return parser.parse_args()
 
-def dice_loss(pred, target, smooth=1.):
-    pred = pred.contiguous()
-    target = target.contiguous()   
-    intersection = (pred * target).sum(dim=2).sum(dim=2)
-    loss = (1 - ((2. * intersection + smooth) / (pred.sum(dim=2).sum(dim=2) + target.sum(dim=2).sum(dim=2) + smooth)))
-    return loss.mean()
+def train_fold(args, fold):
+    """단일 fold 학습 함수"""
+    print(f"\nStarting training for fold {fold}/{args.n_splits}")
 
-def IOU_loss(inputs, targets, smooth=1) :    
-    inputs = inputs.reshape(-1)
-    targets = targets.reshape(-1)
-    intersection = (inputs * targets).sum()
-    total = (inputs + targets).sum()
-    union = total - intersection 
-    IoU = (intersection + smooth)/(union + smooth)
-    return 1 - IoU
-
-def focal_loss(inputs, targets, alpha=0.25, gamma=2):
-    bce_loss = F.binary_cross_entropy(inputs, targets, reduction='none')  # (B, C, H, W)
-    pt = torch.where(targets == 1, inputs, 1 - inputs)  # (B, C, H, W)
-
-    focal = alpha * (1 - pt) ** gamma * bce_loss
-
-    return focal.mean()
-
-def msssim_loss(inputs, targets, data_range=1.0):
-    msssim_score = ms_ssim(inputs, targets, data_range=data_range, size_average=True)
+     # 폴드별 저장 디렉토리 생성
+    fold_save_dir = os.path.join(args.save_dir, f'fold{fold}')
+    os.makedirs(fold_save_dir, exist_ok=True)  
     
-    msssim_loss = 1 - msssim_score
-    return msssim_loss
-
-def calc_loss(pred, target, focal_weight=0.33, iou_weight=0.33, msssim_weight = 0.33):
+    # Transform 설정
+    train_transform = A.Compose([A.Resize(args.image_size, args.image_size)])
     
-    # focal Loss 계산
-    pred = F.sigmoid(pred)
-    focal = focal_loss(pred, target, alpha=0.25, gamma=2)
+    # 데이터셋 준비
+    train_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=True, 
+                                transforms=train_transform, n_splits=args.n_splits, fold=fold)
     
-    # IoU Loss 계산
-    iou = IOU_loss(pred, target)
-
-    # msssim loss 계산
-    msssim = msssim_loss(pred, target)
+    valid_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=False, 
+                                transforms=train_transform, n_splits=args.n_splits, fold=fold)
     
-    # 가중치 기반 결합
-    loss = focal_weight * focal + iou_weight * iou + msssim_weight * msssim
-    return loss
-
-def main():
-    args = parse_args()
-
-    if not os.path.exists(args.save_dir):
-        os.makedirs(args.save_dir)
-
-    # 시드 고정
-    set_seed()
-
-    # 데이터셋 및 데이터로더 설정
-    train_transform = A.Compose([A.Resize(args.image_size, args.image_size),
-                                A.ElasticTransform(
-                                    alpha=10.0,
-                                    sigma=10.0,
-                                    alpha_affine=0.1,
-                                    p=0.5),
-                                    A.GridDistortion(p=0.5),
-                                    A.HorizontalFlip(p=0.5)])
-
-    train_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=True, transforms=train_transform)
-    valid_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=False, transforms=train_transform)
-
-    train_loader = DataLoader(
-        dataset=train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=2,
-        drop_last=True
-    )
-
-    valid_loader = DataLoader(
-        dataset=valid_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=2,
-        drop_last=False
-    )
-
+    # 데이터로더 설정
+    train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True)
+    
+    valid_loader = DataLoader(dataset=valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, drop_last=False)
+    
     # 모델 설정
-    # model = models.segmentation.fcn_resnet50(pretrained=True)
-    model = build_unet3plus(num_classes=29, encoder = 'resnet50', pretrained=True)
-    # model.classifier[4] = nn.Conv2d(512, len(CLASSES), kernel_size=1)
+    model = build_unet3plus(num_classes=29, encoder='resnet50', pretrained=True)
     model = model.cuda()
-
+    
     # 손실 함수 및 옵티마이저 설정
-    criterion = calc_loss
+    criterion = get_loss('combined', weights={'bce': 0.5, 'dice': 0.5})
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-6)
-
+    
     # Wandb 초기화
     wandb.init(
         project="hand_bone_segmentation",
-        name=args.wandb_name,
-        # wandb 초기화
-        config = {
+        name=f"{args.wandb_name}_fold{fold}",
+        config={
             "learning_rate": args.lr,
             "epochs": args.max_epochs,
             "batch_size": args.batch_size,
             "image_size": args.image_size,
-        })
-
+            "fold": fold,
+            "n_splits": args.n_splits
+        }
+    )
+    
     # 학습 시작
-    train(model, train_loader, valid_loader, criterion, optimizer, args.max_epochs, args.val_interval, args.save_dir)
+    best_dice = train(
+        model=model,
+        data_loader=train_loader,
+        val_loader=valid_loader,
+        criterion=criterion,
+        optimizer=optimizer,
+        num_epochs=args.max_epochs,
+        val_interval=args.val_interval,
+        save_dir=os.path.join(args.save_dir, f'fold{fold}')
+    )
+    
+    wandb.finish()
+    
+    return best_dice
+
+def main():
+    args = parse_args()
+    
+    if not os.path.exists(args.save_dir):
+        os.makedirs(args.save_dir)
+    
+    # 시드 고정
+    set_seed()
+    
+    # Cross Validation 실행
+    cv_scores = []
+    
+    if args.use_cv:  # 전체 fold 학습
+        print(f"Starting {args.n_splits}-fold cross validation...")
+        for fold in range(args.n_splits):
+            best_dice = train_fold(args, fold)
+            cv_scores.append(best_dice)
+            
+        # Cross Validation 결과 출력
+        mean_dice = np.mean(cv_scores)
+        std_dice = np.std(cv_scores)
+        print("\nCross Validation Results:")
+        print(f"Fold Scores: {cv_scores}")
+        print(f"Mean Dice: {mean_dice:.4f} ± {std_dice:.4f}")
+
+    else:  # 특정 fold만 학습
+        print(f"Training fold {args.fold} of {args.n_splits}")
+        train_fold(args, args.fold)
 
 if __name__ == '__main__':
     main()

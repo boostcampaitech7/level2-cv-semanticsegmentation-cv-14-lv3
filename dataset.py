@@ -19,10 +19,15 @@ CLASS2IND = {v: i for i, v in enumerate(CLASSES)}
 IND2CLASS = {v: k for k, v in CLASS2IND.items()}
 
 class XRayDataset(Dataset):
-    def __init__(self, image_root, label_root, is_train=True, transforms=None):
+    def __init__(self, image_root, label_root, is_train=True, transforms=None, 
+                 use_cv=False, n_splits=5, fold=0):
         self.image_root = image_root
         self.label_root = label_root
         self.transforms = transforms
+        self.use_cv = use_cv
+        self.n_splits = n_splits
+        self.fold = fold
+        self.is_train = is_train
         
         # 이미지와 라벨 파일 목록 가져오기
         self.pngs = self._get_image_files()
@@ -53,27 +58,24 @@ class XRayDataset(Dataset):
         _filenames = np.array(self.pngs)
         _labelnames = np.array(self.jsons)
         
+        # 환자 단위로 그룹화
         groups = [os.path.dirname(fname) for fname in _filenames]
-        ys = [0 for _ in _filenames]  # dummy label
         
-        gkf = GroupKFold(n_splits=5)
+        gkf = GroupKFold(n_splits=self.n_splits)
+        folds = list(gkf.split(_filenames, [0]*len(_filenames), groups))
         
-        filenames = []
-        labelnames = []
-        
-        for i, (x, y) in enumerate(gkf.split(_filenames, ys, groups)):
-            if is_train:
-                if i == 0:
-                    continue
-                filenames += list(_filenames[y])
-                labelnames += list(_labelnames[y])
-            else:
-                filenames = list(_filenames[y])
-                labelnames = list(_labelnames[y])
-                break
-                
-        self.filenames = filenames
-        self.labelnames = labelnames
+        # fold 분할
+        if is_train:
+            train_indices = []
+            for i, (_, fold_indices) in enumerate(folds):
+                if i != self.fold:
+                    train_indices.extend(fold_indices)
+            self.filenames = list(_filenames[train_indices])
+            self.labelnames = list(_labelnames[train_indices])
+        else:
+            _, val_indices = folds[self.fold]
+            self.filenames = list(_filenames[val_indices])
+            self.labelnames = list(_labelnames[val_indices])
         
     def __len__(self):
         return len(self.filenames)
