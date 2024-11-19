@@ -16,7 +16,7 @@ from loss import get_loss
 import numpy as np
 
 # U-Net3+
-from model import build_unet3plus, UNet3Plus
+from model import build_unet3plus, build_ducknet
 ''' [About gpu_trainer.py]
 - gpu_trainer : Validation 연산에 GPU를 이용합니다.
 - 이를 사용하기 위해 아래 주석을 해제하고, "gpu_trainer.py" 파일을 사용해주세요.
