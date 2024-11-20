@@ -30,7 +30,7 @@ resnet_cfg = {
 
 class U3PResNetEncoder(nn.Module):
     '''
-    ResNet encoder wrapper 
+    ResNet encoder wrapper
     '''
     def __init__(self, backbone='resnet18', pretrained=False) -> None:
         super().__init__()
@@ -51,7 +51,7 @@ class U3PResNetEncoder(nn.Module):
             else:
                 self.compress_convs.append(nn.Identity())
         self.channels = [3] + cfg['channels']
-        
+
     def forward(self, x):
         out = self.backbone(x)
         for ii, compress in enumerate(self.compress_convs):
