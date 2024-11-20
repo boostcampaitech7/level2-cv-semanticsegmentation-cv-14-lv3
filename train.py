@@ -15,17 +15,18 @@ import torch.nn.functional as F
 from loss import get_loss
 import numpy as np
 
-# UNet3+ : Backbone을 ResNet과 EfficientNet 중에서 선택해 훈련할 수 있습니다.
-# from model.u3_resnet import build_unet3plus, UNet3Plus
-from model.u3_effnet import build_unet3plus, build_ducknet
+''' [About U-Net3+ Model]
+- Duck-Net, U3+(backbone=ResNet), U3+(backbone=EfficientNet) 중에서 선택해 훈련할 수 있습니다.
+- 아래 주석에서 학습하고 싶은 부분의 주석을 해체하고 훈련시켜 주세요.
+- 주석을 해체하지 않는다면, 모델을 불러올 수 없어 ModuleError가 발생합니다.
+'''
+# from model.duck_net import build_unet3plus, build_ducknet
+# from model.u3_resnet import UNet3Plus, build_unet3plus
+# from model.u3_effnet import UNet3Plus, build_unet3plus
 
 from trainer import train, set_seed
-''' [About gpu_trainer.py]
-- gpu_trainer : Validation 연산에 GPU를 이용합니다.
-- 이를 사용하기 위해 아래 주석을 해제하고, "gpu_trainer.py" 파일을 사용해주세요.
-- gpu_trainer는 memory를 사용하므로, OOM(Out-of-Memory) 에러가 발생할 수 있습니다.
-from gpu_trainer import train, set_seed
-'''
+# from gpu_trainer import train, set_seed
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Human Bone Image Segmentation Train')
@@ -34,7 +35,7 @@ def parse_args():
                         help='Train image가 있는 디렉토리 경로')
     parser.add_argument('--label_dir', type=str, default='/data/ephemeral/home/data/train/outputs_json',
                         help='Train label json 파일이 있는 디렉토리 경로')
-    parser.add_argument('--image_size', type=int, default=1080,
+    parser.add_argument('--image_size', type=int, default=1280,
                         help='이미지 Resize')
     parser.add_argument('--save_dir', type=str, default='./checkpoints',
                         help='모델 저장 경로')
@@ -120,6 +121,7 @@ def train_fold(args, fold):
 
     return best_dice
 
+
 def main():
     args = parse_args()
 
@@ -128,158 +130,6 @@ def main():
 
     # 시드 고정
     set_seed()
-
-    # 데이터셋 및 데이터로더 설정
-    train_transform = A.Compose([A.Resize(args.image_size, args.image_size),
-                                A.ElasticTransform(
-                                    alpha=10.0,
-                                    sigma=10.0,
-                                    alpha_affine=0.1,
-                                    p=0.5),
-                                    A.GridDistortion(p=0.5),
-                                    A.HorizontalFlip(p=0.5)])
-
-    train_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=True, transforms=train_transform)
-    valid_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=False, transforms=train_transform)
-
-    train_loader = DataLoader(
-        dataset=train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=2,
-        drop_last=True
-    )
-
-    valid_loader = DataLoader(
-        dataset=valid_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=2,
-        drop_last=False
-    )
-
-    # Set model
-    model = build_unet3plus(num_classes=29, encoder='efficientnet-b5', pretrained=True)
-    model = model.cuda()
-
-    # 손실 함수 및 옵티마이저 설정
-    criterion = dice_loss
-    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-6)
-
-    # Wandb 초기화
-    wandb.init(
-        project="hand_bone_segmentation",
-        name=args.wandb_name,
-        # wandb 초기화
-        config = {
-            "learning_rate": args.lr,
-            "epochs": args.max_epochs,
-            "batch_size": args.batch_size,
-            "image_size": args.image_size,
-        })
-
-    # 학습 시작
-    train(model, train_loader, valid_loader, criterion, optimizer, args.max_epochs, args.val_interval, args.save_dir)
-
-    # Cross Validation 실행
-    cv_scores = []
-
-    if args.use_cv:  # 전체 fold 학습
-        print(f"Starting {args.n_splits}-fold cross validation...")
-        for fold in range(args.n_splits):
-            best_dice = train_fold(args, fold)
-            cv_scores.append(best_dice)
-
-        # Cross Validation 결과 출력
-        mean_dice = np.mean(cv_scores)
-        std_dice = np.std(cv_scores)
-        print("\nCross Validation Results:")
-        print(f"Fold Scores: {cv_scores}")
-        print(f"Mean Dice: {mean_dice:.4f} ± {std_dice:.4f}")
-
-    else:  # 특정 fold만 학습
-        print(f"Training fold {args.fold} of {args.n_splits}")
-        train_fold(args, args.fold)
-
-    # Cross Validation 실행
-    cv_scores = []
-
-    if args.use_cv:  # 전체 fold 학습
-        print(f"Starting {args.n_splits}-fold cross validation...")
-        for fold in range(args.n_splits):
-            best_dice = train_fold(args, fold)
-            cv_scores.append(best_dice)
-
-        # Cross Validation 결과 출력
-        mean_dice = np.mean(cv_scores)
-        std_dice = np.std(cv_scores)
-        print("\nCross Validation Results:")
-        print(f"Fold Scores: {cv_scores}")
-        print(f"Mean Dice: {mean_dice:.4f} ± {std_dice:.4f}")
-
-    else:  # 특정 fold만 학습
-        print(f"Training fold {args.fold} of {args.n_splits}")
-        train_fold(args, args.fold)
-
-    # Cross Validation 실행
-    cv_scores = []
-
-    if args.use_cv:  # 전체 fold 학습
-        print(f"Starting {args.n_splits}-fold cross validation...")
-        for fold in range(args.n_splits):
-            best_dice = train_fold(args, fold)
-            cv_scores.append(best_dice)
-
-        # Cross Validation 결과 출력
-        mean_dice = np.mean(cv_scores)
-        std_dice = np.std(cv_scores)
-        print("\nCross Validation Results:")
-        print(f"Fold Scores: {cv_scores}")
-        print(f"Mean Dice: {mean_dice:.4f} ± {std_dice:.4f}")
-
-    else:  # 특정 fold만 학습
-        print(f"Training fold {args.fold} of {args.n_splits}")
-        train_fold(args, args.fold)
-
-    # Cross Validation 실행
-    cv_scores = []
-
-    if args.use_cv:  # 전체 fold 학습
-        print(f"Starting {args.n_splits}-fold cross validation...")
-        for fold in range(args.n_splits):
-            best_dice = train_fold(args, fold)
-            cv_scores.append(best_dice)
-
-        # Cross Validation 결과 출력
-        mean_dice = np.mean(cv_scores)
-        std_dice = np.std(cv_scores)
-        print("\nCross Validation Results:")
-        print(f"Fold Scores: {cv_scores}")
-        print(f"Mean Dice: {mean_dice:.4f} ± {std_dice:.4f}")
-
-    else:  # 특정 fold만 학습
-        print(f"Training fold {args.fold} of {args.n_splits}")
-        train_fold(args, args.fold)
-
-    # Cross Validation 실행
-    cv_scores = []
-
-    if args.use_cv:  # 전체 fold 학습
-        print(f"Starting {args.n_splits}-fold cross validation...")
-        for fold in range(args.n_splits):
-            best_dice = train_fold(args, fold)
-            cv_scores.append(best_dice)
-
-        # Cross Validation 결과 출력
-        mean_dice = np.mean(cv_scores)
-        std_dice = np.std(cv_scores)
-        print("\nCross Validation Results:")
-        print(f"Fold Scores: {cv_scores}")
-        print(f"Mean Dice: {mean_dice:.4f} ± {std_dice:.4f}")
-
-    else:  # 특정 fold만 학습
-        print(f"Training fold {args.fold} of {args.n_splits}")
-        train_fold(args, args.fold)
 
     # Cross Validation 실행
     cv_scores = []
