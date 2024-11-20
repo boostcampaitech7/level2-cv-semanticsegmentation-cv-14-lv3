@@ -22,7 +22,7 @@ import numpy as np
 '''
 # from model.duck_net import build_unet3plus, build_ducknet
 # from model.u3_resnet import UNet3Plus, build_unet3plus
-# from model.u3_effnet import UNet3Plus, build_unet3plus
+from model.u3_effnet import UNet3Plus, build_unet3plus
 
 from trainer import train, set_seed
 # from gpu_trainer import train, set_seed
@@ -84,7 +84,7 @@ def train_fold(args, fold):
     valid_loader = DataLoader(dataset=valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, drop_last=False)
 
     # 모델 설정
-    model = build_unet3plus(num_classes=29, encoder='resnet50', pretrained=True)
+    model = build_unet3plus(num_classes=29, encoder='efficientnet-b5', pretrained=True)
     model = model.cuda()
 
     # 손실 함수 및 옵티마이저 설정
