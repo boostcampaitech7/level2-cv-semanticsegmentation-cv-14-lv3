@@ -6,7 +6,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import models
 import wandb
-from dataset import XRayDataset, CLASSES
+from dataset import XRayDataset, CLASSES, RoiXRayDataset
 # pip install segmentation-models-pytorch
 import segmentation_models_pytorch as smp
 from trainer import train, set_seed
@@ -44,7 +44,7 @@ def parse_args():
                         help='총 에폭 수')
     parser.add_argument('--val_interval', type=int, default=1,
                         help='검증 주기')
-    parser.add_argument('--wandb_name', type=str, default='test',
+    parser.add_argument('--wandb_name', type=str, default='5_aug_test',
                         help='wandb에 표시될 실험 이름')
 
     # K-fold Cross Validation
@@ -54,10 +54,16 @@ def parse_args():
                         help='K-fold에서 분할할 fold 개수')
     parser.add_argument('--fold', type=int, default=0, 
                         help='특정 fold 학습시 fold 번호')
+    
+    # ROI영역 학습
+    parser.add_argument('--use_roi', action='store_true',
+                        help='ROI영역 학습 진행 여부')
+    parser.add_argument('--roi_csv_path', type=str, default='roi_train.csv',
+                        help='학습할 데이터셋의 bbox정보가 담긴 roi.csv 파일 경로')
 
     return parser.parse_args()
 
-def train_fold(args, fold):
+def train_fold(args, fold, use_roi = False, roi_path = 'roi_train.csv'):
     """단일 fold 학습 함수"""
     print(f"\nStarting training for fold {fold}/{args.n_splits}")
 
@@ -66,14 +72,29 @@ def train_fold(args, fold):
     os.makedirs(fold_save_dir, exist_ok=True)  
     
     # Transform 설정
-    train_transform = A.Compose([A.Resize(args.image_size, args.image_size)])
+    train_transform = A.Compose([A.Resize(args.image_size, args.image_size),
+                                 A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.5),
+                                 A.HorizontalFlip(p=0.5),
+                                 A.Rotate(limit=45, p=0.5),
+                                 A.GridDistortion(p=0.5),
+                                 A.ElasticTransform(
+                                    alpha=10.0,
+                                    sigma=10.0,
+                                    alpha_affine=0.1,
+                                    p=0.5)])
+    val_transform = A.Compose([A.Resize(args.image_size, args.image_size)])
     
     # 데이터셋 준비
-    train_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=True, 
+    if use_roi:
+        train_dataset = RoiXRayDataset(args.image_dir, args.label_dir, roi_path, is_train=True, 
                                 transforms=train_transform, n_splits=args.n_splits, fold=fold)
-    
-    valid_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=False, 
+        valid_dataset = RoiXRayDataset(args.image_dir, args.label_dir, roi_path, is_train=False, 
+                                transforms=val_transform, n_splits=args.n_splits, fold=fold)
+    else:  
+        train_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=True, 
                                 transforms=train_transform, n_splits=args.n_splits, fold=fold)
+        valid_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=False, 
+                                transforms=val_transform, n_splits=args.n_splits, fold=fold)
     
     # 데이터로더 설정
     train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True)
@@ -90,7 +111,7 @@ def train_fold(args, fold):
     
     # Wandb 초기화
     wandb.init(
-        project="hand_bone_segmentation",
+        project="Wrist_Bone_ROI_Segmentation",
         name=f"{args.wandb_name}_fold{fold}",
         config={
             "learning_rate": args.lr,
@@ -111,7 +132,8 @@ def train_fold(args, fold):
         optimizer=optimizer,
         num_epochs=args.max_epochs,
         val_interval=args.val_interval,
-        save_dir=os.path.join(args.save_dir, f'fold{fold}')
+        save_dir=os.path.join(args.save_dir, f'fold{fold}'),
+        use_roi=use_roi
     )
     
     wandb.finish()
@@ -133,7 +155,7 @@ def main():
     if args.use_cv:  # 전체 fold 학습
         print(f"Starting {args.n_splits}-fold cross validation...")
         for fold in range(args.n_splits):
-            best_dice = train_fold(args, fold)
+            best_dice = train_fold(args, fold, use_roi=args.use_roi, roi_path=args.roi_csv_path)
             cv_scores.append(best_dice)
             
         # Cross Validation 결과 출력
@@ -145,7 +167,7 @@ def main():
 
     else:  # 특정 fold만 학습
         print(f"Training fold {args.fold} of {args.n_splits}")
-        train_fold(args, args.fold)
+        train_fold(args, args.fold, use_roi=args.use_roi, roi_path=args.roi_csv_path)
 
 if __name__ == '__main__':
     main()
