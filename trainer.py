@@ -12,6 +12,7 @@ from dataset import CLASSES
 from functions import dice_coef
 import matplotlib.pyplot as plt
 # from tools.stream-lit.visualize import visualize_prediction
+import sys
 
 
 def convert_seconds_to_hms(seconds):
@@ -197,6 +198,7 @@ def validation(epoch, model, data_loader, criterion, thr=0.5, num_worst_samples=
     return avg_dice, avg_loss, class_losses.cpu().numpy(), worst_samples, dices_per_class
 
 def save_model(model, model_path):
+    sys.setrecursionlimit(1500)
     torch.save(model, model_path)
 
 def set_seed(seed=21):

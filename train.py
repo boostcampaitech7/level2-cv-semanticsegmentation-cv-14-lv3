@@ -15,7 +15,7 @@ from pytorch_msssim import ms_ssim
 # from model import build_unet3plus, UNet3Plus
 
 # U-Net3+ with EfficientNet
-from u3 import build_unet3plus, UNet3Plus
+from u3_effi import build_unet3plus, UNet3Plus
 ''' [About gpu_trainer.py]
 - gpu_trainer : Validation 연산에 GPU를 이용합니다.
 - 이를 사용하기 위해 아래 주석을 해제하고, "gpu_trainer.py" 파일을 사용해주세요.
