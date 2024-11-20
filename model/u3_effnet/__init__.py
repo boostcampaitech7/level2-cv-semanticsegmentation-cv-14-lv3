@@ -30,8 +30,6 @@ efficientnet_cfg = {
 }
 
 
-
-##### DEVIDING LINE #####
 class U3PEfficientNetEncoder(nn.Module):
     '''
     EfficientNet encoder wrapper
@@ -57,14 +55,6 @@ class U3PEfficientNetEncoder(nn.Module):
             efficientnet.apply(weight_init)
         self.backbone = create_feature_extractor(efficientnet, return_nodes=efficientnet_cfg['return_nodes'])
 
-        # print(efficientnet)
-        # input = torch.randn(1, 3, 512, 512)
-        # out = self.backbone(input)
-        # print(out['layer0'].shape)
-        # print(out['layer1'].shape)
-        # print(out['layer2'].shape)
-        # print(out['layer3'].shape)
-        # print(out['layer4'].shape)
 
         # Step 3. Layer to compress features to match channel sizes
         self.compress_convs = nn.ModuleList()

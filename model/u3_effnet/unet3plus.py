@@ -15,7 +15,6 @@ def autopad(k, p=None):  # kernel, padding
         p = k // 2 if isinstance(k, int) else [x // 2 for x in k]  # auto-pad
     return p
 
-
 def u3pblock(in_ch, out_ch, num_block=2, kernel_size=3, padding=1, down_sample=False):
     m = []
     if down_sample:
@@ -85,8 +84,6 @@ class FullScaleSkipConnect(nn.Module):
         return self.fuse_layer(self.droupout(torch.cat(out, 1)))
 
 
-
-
 class U3PEfficientNetEncoder(nn.Module):
     def __init__(self, channels=[3, 64, 128, 256, 512, 1024], num_block=2, backbone='efficientnet-b5', pretrained=False):
         super().__init__()
@@ -130,6 +127,7 @@ class U3PEfficientNetEncoder(nn.Module):
 
         return encoder_out
 
+
 class U3PEfficientNetDecoder(nn.Module):
     def __init__(self, en_channels=[64, 128, 256, 512, 1024], skip_ch=64, dropout=0.3, fast_up=True):
         super().__init__()
@@ -167,6 +165,7 @@ class U3PEfficientNetDecoder(nn.Module):
             dec_map_list.append(layer(enc_map_list[ii:], dec_map_list))
 
         return dec_map_list
+
 
 class UNet3Plus(nn.Module):
 
