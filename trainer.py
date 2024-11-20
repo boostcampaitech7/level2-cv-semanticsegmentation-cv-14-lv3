@@ -22,6 +22,7 @@ def convert_seconds_to_hms(seconds):
     seconds = seconds % 60
     return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
 
+
 def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_interval, save_dir):
     print('Start training..')
 
@@ -115,7 +116,7 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
                     os.remove(best_model_path)
 
                 best_model_path = os.path.join(save_dir, f"best_dice_{best_dice:.4f}.pt")
-                save_model(model, best_model_path)
+                torch.save(model.state_dict(), best_model_path)
 
                 wandb.run.summary.update({
                     "best_dice": best_dice,
@@ -129,6 +130,7 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
     total_time = time.time() - total_start_time
     total_str = convert_seconds_to_hms(total_time)
     print(f'Total training completed in {total_str}.')
+
 
 def validation(epoch, model, data_loader, criterion, thr=0.5, num_worst_samples=4):
     print(f'Start validation #{epoch:2d}')
@@ -197,8 +199,6 @@ def validation(epoch, model, data_loader, criterion, thr=0.5, num_worst_samples=
 
     return avg_dice, avg_loss, class_losses.cpu().numpy(), worst_samples, dices_per_class
 
-def save_model(model, model_path):
-    torch.save(model, model_path)
 
 def set_seed(seed=21):
     torch.manual_seed(seed)
