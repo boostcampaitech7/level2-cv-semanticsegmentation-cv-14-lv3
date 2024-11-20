@@ -1,15 +1,18 @@
+import sys
 import os
 import numpy as np
 import pandas as pd
 import copy
 import argparse
 from tqdm import tqdm
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from functions import encode_mask_to_rle, decode_rle_to_mask
 from dataset import CLASSES
 
 '''
 - Source Code : https://github.com/boostcampaitech6/level2-cv-semanticsegmentation-cv-12/blob/main/utils/ensemble.ipynb
-- Method : Majority Voting ensemble
+- Method : Majority Voting ensemble (Threshold 이상 수만큼 선택한 값을 최종 결과로 선택합니다.)
 '''
 
 def parse_args():
@@ -137,7 +140,7 @@ def create_final_predictions(ensemble: dict, threshold: float, pngs: set, classe
 
     return pd.DataFrame(predictions)
 
-def main():
+def hard_ensemble():
     args = parse_args()
     height, width = 2048, 2048
 
@@ -179,4 +182,4 @@ def main():
         raise
 
 if __name__ == '__main__':
-    main()
+    hard_ensemble()
