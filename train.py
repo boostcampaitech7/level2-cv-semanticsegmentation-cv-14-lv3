@@ -11,18 +11,17 @@ import torch
 import torch.nn.functional as F
 from pytorch_msssim import ms_ssim
 
-# U-Net3+
-# from model import build_unet3plus, UNet3Plus
+# UNet3+ : Backbone을 ResNet과 EfficientNet 중에서 선택해 훈련할 수 있습니다.
+# from model.u3_resnet import build_unet3plus, UNet3Plus
+from model.u3_effnet import build_unet3plus, UNet3Plus
 
-# U-Net3+ with EfficientNet
-from u3_effi import build_unet3plus, UNet3Plus
+from trainer import train, set_seed
 ''' [About gpu_trainer.py]
 - gpu_trainer : Validation 연산에 GPU를 이용합니다.
 - 이를 사용하기 위해 아래 주석을 해제하고, "gpu_trainer.py" 파일을 사용해주세요.
 - gpu_trainer는 memory를 사용하므로, OOM(Out-of-Memory) 에러가 발생할 수 있습니다.
+from gpu_trainer import train, set_seed
 '''
-from trainer import train, set_seed
-# from gpu_trainer import train, set_seed
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Human Bone Image Segmentation Train')
@@ -31,7 +30,7 @@ def parse_args():
                         help='Train image가 있는 디렉토리 경로')
     parser.add_argument('--label_dir', type=str, default='/data/ephemeral/home/data/train/outputs_json',
                         help='Train label json 파일이 있는 디렉토리 경로')
-    parser.add_argument('--image_size', type=int, default=1024,
+    parser.add_argument('--image_size', type=int, default=1080,
                         help='이미지 Resize')
     parser.add_argument('--save_dir', type=str, default='./checkpoints',
                         help='모델 저장 경로')
@@ -43,7 +42,7 @@ def parse_args():
                         help='총 에폭 수')
     parser.add_argument('--val_interval', type=int, default=1,
                         help='검증 주기')
-    parser.add_argument('--wandb_name', type=str, default='u3p_effnet_test',
+    parser.add_argument('--wandb_name', type=str, required=True,
                         help='wandb에 표시될 실험 이름')
 
     return parser.parse_args()
@@ -137,8 +136,8 @@ def main():
     model = model.cuda()
 
     # 손실 함수 및 옵티마이저 설정
-    criterion = calc_loss
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-6)
+    criterion = dice_loss
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-6)
 
     # Wandb 초기화
     wandb.init(

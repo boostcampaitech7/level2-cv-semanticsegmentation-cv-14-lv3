@@ -11,7 +11,7 @@ import wandb
 from dataset import CLASSES
 from functions import dice_coef
 import matplotlib.pyplot as plt
-# from tools.stream-lit.visualize import visualize_prediction
+from tools.streamlit.visualize import visualize_prediction
 import sys
 
 
