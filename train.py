@@ -46,7 +46,6 @@ def parse_args():
                         help='총 에폭 수')
     parser.add_argument('--val_interval', type=int, default=1,
                         help='검증 주기')
-    parser.add_argument('--wandb_name', type=str, default='test',
     parser.add_argument('--wandb_name', type=str, required=True,
                         help='wandb에 표시될 실험 이름')
 
