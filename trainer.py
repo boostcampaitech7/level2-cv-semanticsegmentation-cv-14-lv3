@@ -278,7 +278,7 @@ def validation_roi(epoch, model, data_loader, criterion, thr=0.5, num_worst_samp
 def save_model(model, model_path):
     torch.save(model, model_path)
 
-def set_seed(seed=21):
+def set_seed(seed=123):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
