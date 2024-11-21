@@ -5,7 +5,7 @@ import copy
 import argparse
 from tqdm import tqdm
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append("/data/ephemeral/home/ng-youn")
 from functions import encode_mask_to_rle, decode_rle_to_mask
 from dataset import CLASSES
 
@@ -20,7 +20,7 @@ def parse_args():
     parser.add_argument('--output_dir', type=str, default='/data/ephemeral/home/ng-youn/output',
                         help='Directory where output.csv files exist')
     parser.add_argument('--output_path', type=str, default='ensemble_result.csv',
-                        help='Path to save the ensemble result CSV')
+                        help='Filename to save the ensemble result CSV')
     parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
                         help='Directory containing test images')
     parser.add_argument('--threshold', type=float, default=3,
