@@ -13,7 +13,6 @@ from functions import dice_coef
 import matplotlib.pyplot as plt
 from tools.streamlit.visualize import visualize_prediction
 
-
 def convert_seconds_to_hms(seconds):
     """초를 시, 분, 초로 변환하는 함수"""
     hours = seconds // 3600

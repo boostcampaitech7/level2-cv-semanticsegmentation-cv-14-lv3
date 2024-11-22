@@ -30,7 +30,7 @@ parameters:
     value: 2 
 
   num_epochs:
-    value: 60 
+    value: 60 # 100
   
 early_terminate:
   type: hyperband

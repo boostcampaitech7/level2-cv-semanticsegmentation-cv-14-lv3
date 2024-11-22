@@ -15,13 +15,15 @@ import torch.nn.functional as F
 from loss import get_loss
 import numpy as np
 
-# U-Net3+
-from model import build_unet3plus, build_ducknet
-''' [About gpu_trainer.py]
-- gpu_trainer : Validation 연산에 GPU를 이용합니다.
-- 이를 사용하기 위해 아래 주석을 해제하고, "gpu_trainer.py" 파일을 사용해주세요.
-- gpu_trainer는 memory를 사용하므로, OOM(Out-of-Memory) 에러가 발생할 수 있습니다.
+''' [About U-Net3+ Model]
+- Duck-Net, U3+(backbone=ResNet), U3+(backbone=EfficientNet) 중에서 선택해 훈련할 수 있습니다.
+- 아래 주석에서 학습하고 싶은 부분의 주석을 해체하고 훈련시켜 주세요.
+- 주석을 해체하지 않는다면, 모델을 불러올 수 없어 ModuleError가 발생합니다.
 '''
+# from model.duck_net import build_unet3plus, build_ducknet
+# from model.u3_resnet import UNet3Plus, build_unet3plus
+from model.u3_effnet import UNet3Plus, build_unet3plus
+
 from trainer import train, set_seed
 # from gpu_trainer import train, set_seed
 
