@@ -21,7 +21,7 @@ from loss import get_loss
 '''
 # from model.duck_net import build_unet3plus, build_ducknet
 # from model.u3_resnet import UNet3Plus, build_unet3plus
-# from model.u3_effnet import UNet3Plus, build_unet3plus
+from model.u3_effnet import UNet3Plus, build_unet3plus
 
 # from gpu_trainer import train, set_seed
 def parse_args():
@@ -130,8 +130,8 @@ def train_fold(args, fold, hook=None):
     )
 
     # Create top model selection hook if not provided
-    if hook is None:
-        hook = TopModelSelectionHook(n_top_models=2)
+    if hook is not None:
+        hook.after_train_epoch(runner)
 
     # Training
     best_dice = train(
@@ -143,7 +143,7 @@ def train_fold(args, fold, hook=None):
         num_epochs=args.max_epochs,
         val_interval=args.val_interval,
         save_dir=os.path.join(args.save_dir, f'fold{fold}'),
-        hook=hook  # Pass the hook to the training function
+        hook=False  # Pass the hook to the training function
     )
 
     wandb.finish()

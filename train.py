@@ -7,16 +7,14 @@ from torch.utils.data import DataLoader
 from torchvision import models
 import wandb
 from dataset import XRayDataset, CLASSES
+# pip install segmentation-models-pytorch
 import segmentation_models_pytorch as smp
 from trainer import train, set_seed
 import torch
 import torch.nn.functional as F
 from loss import get_loss
 import numpy as np
-import logging
-import heapq
-from mmcv.runner import Hook
-from mmcv.runner import HOOKS
+
 ''' [About U-Net3+ Model]
 - Duck-Net, U3+(backbone=ResNet), U3+(backbone=EfficientNet) 중에서 선택해 훈련할 수 있습니다.
 - 아래 주석에서 학습하고 싶은 부분의 주석을 해체하고 훈련시켜 주세요.
@@ -24,9 +22,7 @@ from mmcv.runner import HOOKS
 '''
 # from model.duck_net import build_unet3plus, build_ducknet
 # from model.u3_resnet import UNet3Plus, build_unet3plus
-# from model.u3_effnet import UNet3Plus, build_unet3plus
-
-# from gpu_trainer import train, set_seed
+from model.u3_effnet import UNet3Plus, build_unet3plus
 
 from trainer import train, set_seed
 # from gpu_trainer import train, set_seed
@@ -63,75 +59,6 @@ def parse_args():
                         help='특정 fold 학습시 fold 번호')
 
     return parser.parse_args()
-
-##### DIVIDE LINE #####
-''' [To-DO]
-- Calculate 5-fold model's performance
-- Select top-3 model (old : only top-1)
-'''
-@HOOKS.register_module()
-class SaveBestHook(Hook):
-    """Save top-3 models based on accuracy and dice metrics"""
-    def __init__(self, work_dir):
-        self.top3_val_dice = []  # dice metric top 3
-        self.top3_val_loss = []  # loss top 3
-        self.work_dir = work_dir
-
-        # Setup logger
-        log_path = os.path.join(work_dir, 'train.log')
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_path),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger()
-
-    def save_top_model(self, metric_list, value, epoch, filename, mode='max'):
-        """Save and manage top 3 models"""
-        if mode == 'max':
-            # Track top 3 dice scores
-            heapq.heappush(metric_list, (value, epoch, filename))
-            if len(metric_list) > 3:
-                old_model = heapq.heappop(metric_list)
-                if os.path.exists(old_model[2]):
-                    os.remove(old_model[2])
-        else:
-            # Track top 3 losses (lower is better)
-            heapq.heappush(metric_list, (-value, epoch, filename))
-            if len(metric_list) > 3:
-                old_model = heapq.heappop(metric_list)
-                if os.path.exists(old_model[2]):
-                    os.remove(old_model[2])
-
-    def after_val_epoch(self, runner):
-        # Get validation metrics
-        val_dice = runner.outputs['metrics'].get('dice', 0)
-        val_loss = runner.outputs['metrics'].get('loss', 0)
-        epoch = runner.epoch + 1
-
-        # Create model filenames
-        dice_filename = os.path.join(self.work_dir, f"best_dice_model.pth")
-        loss_filename = os.path.join(self.work_dir, f"best_loss_model.pth")
-
-        # Save models based on dice score
-        self.save_top_model(self.top3_val_dice, val_dice, epoch, dice_filename, mode='max')
-
-        # Save models based on loss
-        self.save_top_model(self.top3_val_loss, val_loss, epoch, loss_filename, mode='min')
-
-        # Log training and validation results
-        train_loss = runner.outputs.get('loss', 0)
-        self.logger.info(
-            f"Epoch {epoch}/{runner.max_epochs}, "
-            f"Train Loss: {train_loss:.4f}, "
-            f"Validation Loss: {val_loss:.4f}, "
-            f"Validation Dice: {val_dice:.4f}"
-        )
-
-##### DIVIDE LINE #####
 
 def train_fold(args, fold):
     """단일 fold 학습 함수"""

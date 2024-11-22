@@ -23,7 +23,7 @@ def convert_seconds_to_hms(seconds):
     return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
 
 
-def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_interval, save_dir):
+def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_interval, save_dir, hook=None):
     print('Start training..')
 
     best_dice = 0.
@@ -85,6 +85,17 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
             "epoch": epoch + 1
         }
 
+        # Optional hook call after training epoch
+        if hook is not None:
+            class DummyRunner:
+                def __init__(self, model, log_buffer):
+                    self.model = model
+                    self.log_buffer = log_buffer
+
+            log_buffer = {'val_dice': best_dice}
+            runner = DummyRunner(model, log_buffer)
+            hook.after_train_epoch(runner)
+
         # Validation 수행
         if (epoch + 1) % val_interval == 0:
             dice, val_loss, class_val_losses, worst_samples, dices_per_class = validation(
@@ -130,6 +141,8 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
     total_time = time.time() - total_start_time
     total_str = convert_seconds_to_hms(total_time)
     print(f'Total training completed in {total_str}.')
+
+    return best_dice
 
 
 def validation(epoch, model, data_loader, criterion, thr=0.5, num_worst_samples=4):
