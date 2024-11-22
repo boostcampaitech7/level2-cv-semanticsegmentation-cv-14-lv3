@@ -28,10 +28,6 @@ from mmcv.runner import HOOKS
 
 # from gpu_trainer import train, set_seed
 
-from trainer import train, set_seed
-# from gpu_trainer import train, set_seed
-
-
 def parse_args():
     parser = argparse.ArgumentParser(description='Human Bone Image Segmentation Train')
 
@@ -64,11 +60,6 @@ def parse_args():
 
     return parser.parse_args()
 
-##### DIVIDE LINE #####
-''' [To-DO]
-- Calculate 5-fold model's performance
-- Select top-3 model (old : only top-1)
-'''
 @HOOKS.register_module()
 class SaveBestHook(Hook):
     """Save top-3 models based on accuracy and dice metrics"""
@@ -131,13 +122,15 @@ class SaveBestHook(Hook):
             f"Validation Dice: {val_dice:.4f}"
         )
 
-##### DIVIDE LINE #####
+    def after_run(self, runner):
+        self.logger.info("Training completed.")
+
 
 def train_fold(args, fold):
     """단일 fold 학습 함수"""
     print(f"\nStarting training for fold {fold}/{args.n_splits}")
 
-     # 폴드별 저장 디렉토리 생성
+    # 폴드별 저장 디렉토리 생성
     fold_save_dir = os.path.join(args.save_dir, f'fold{fold}')
     os.makedirs(fold_save_dir, exist_ok=True)
 
@@ -146,14 +139,26 @@ def train_fold(args, fold):
 
     # 데이터셋 준비
     train_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=True,
-                                transforms=train_transform, n_splits=args.n_splits, fold=fold)
-
+                               transforms=train_transform, n_splits=args.n_splits, fold=fold)
     valid_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=False,
-                                transforms=train_transform, n_splits=args.n_splits, fold=fold)
+                               transforms=train_transform, n_splits=args.n_splits, fold=fold)
 
     # 데이터로더 설정
-    train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True)
-    valid_loader = DataLoader(dataset=valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, drop_last=False)
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=2,
+        pin_memory=True
+    )
+
+    valid_loader = DataLoader(
+        dataset=valid_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=2,
+        pin_memory=True
+    )
 
     # 모델 설정
     model = build_unet3plus(num_classes=29, encoder='efficientnet-b5', pretrained=True)
@@ -163,35 +168,37 @@ def train_fold(args, fold):
     criterion = get_loss('combined', weights={'bce': 0.5, 'dice': 0.5})
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-6)
 
-    # Wandb 초기화
-    wandb.init(
-        project="hand_bone_segmentation",
-        name=f"{args.wandb_name}_fold{fold}",
-        config={
-            "learning_rate": args.lr,
-            "epochs": args.max_epochs,
-            "batch_size": args.batch_size,
-            "image_size": args.image_size,
-            "fold": fold,
-            "n_splits": args.n_splits
-        }
-    )
-
-    # 학습 시작
-    best_dice = train(
+    # Create runner
+    runner = EpochBasedRunner(
         model=model,
-        data_loader=train_loader,
-        val_loader=valid_loader,
-        criterion=criterion,
         optimizer=optimizer,
-        num_epochs=args.max_epochs,
-        val_interval=args.val_interval,
-        save_dir=os.path.join(args.save_dir, f'fold{fold}')
+        work_dir=fold_save_dir,
+        max_epochs=args.max_epochs
     )
 
-    wandb.finish()
+    # Add custom attributes
+    runner.criterion = criterion
+    runner.batch_size = args.batch_size
 
-    return best_dice
+    # Configure hooks
+    runner.register_hook(ValidationHook(valid_loader, interval=args.val_interval))
+    runner.register_hook(SaveBestHook(work_dir=fold_save_dir))
+
+    # Configure logging hooks
+    log_config = dict(
+        interval=50,
+        hooks=[
+            dict(type='TextLoggerHook'),
+            dict(type='TensorboardLoggerHook')
+        ]
+    )
+    runner.register_hook_from_cfg(log_config)
+
+    # Start training
+    runner.run([train_loader], workflow=[('train', 1)])
+
+    # Return best dice score
+    return max([x[0] for x in self.top3_val_dice]) if self.top3_val_dice else 0.0
 
 
 def main():
