@@ -1,0 +1,39 @@
+program: train.py
+
+method: bayes  # bayes, random, grid 
+
+metric:
+  name: total/val_dice
+  goal: maximize
+
+parameters:
+  learning_rate:
+    distribution: log_uniform_values
+    min: 0.0001  # 1e-4
+    max: 0.001   # 1e-3
+
+  weight_decay:
+    distribution: log_uniform_values
+    min: 0.0001  # 1e-4
+    max: 0.001   # 1e-3
+
+  scheduler:
+    values: ['cosine_annealing']
+
+  # Loss weight
+  bce_weight:  # BCE loss 가중치
+    distribution: uniform
+    min: 0.4
+    max: 0.6 
+
+  batch_size:
+    value: 2 
+
+  num_epochs:
+    value: 60 
+  
+early_terminate:
+  type: hyperband
+  min_iter: 10  
+  eta: 3        
+  s: 2 
