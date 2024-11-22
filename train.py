@@ -27,7 +27,6 @@ from model.u3_effnet import UNet3Plus, build_unet3plus
 from trainer import train, set_seed
 # from gpu_trainer import train, set_seed
 
-
 def parse_args():
     parser = argparse.ArgumentParser(description='Human Bone Image Segmentation Train')
 
@@ -41,21 +40,32 @@ def parse_args():
                         help='모델 저장 경로')
     parser.add_argument('--batch_size', type=int, default=2,
                         help='배치 크기')
-    parser.add_argument('--lr', type=float, default=1e-4,
-                        help='학습률')
     parser.add_argument('--max_epochs', type=int, default=100,
                         help='총 에폭 수')
     parser.add_argument('--val_interval', type=int, default=1,
                         help='검증 주기')
-    parser.add_argument('--wandb_name', type=str, required=True,
+    parser.add_argument('--wandb_name', type=str, default='sweep',
                         help='wandb에 표시될 실험 이름')
+    
+    # Sweep
+    parser.add_argument('--learning_rate', type=float, default=1e-4,
+                        help='학습률')
+    parser.add_argument('--weight_decay', type=float, default=1e-4,
+                        help='가중치 감쇠')
+    parser.add_argument('--scheduler', type=str, default='cosine_annealing',
+                        choices=['cosine_annealing'],
+                        help='스케줄러')
+    parser.add_argument('--bce_weight', type=float, default=0.5,
+                        help='BCE loss 가중치 ')
+    parser.add_argument('--num_epochs', type=int, default=100,
+                        help='학습 에폭수')
 
     # K-fold Cross Validation
     parser.add_argument('--use_cv', action='store_true',
                         help='전체 fold 학습 여부')
-    parser.add_argument('--n_splits', type=int, default=5,
+    parser.add_argument('--n_splits', type=int, default=5, 
                         help='K-fold에서 분할할 fold 개수')
-    parser.add_argument('--fold', type=int, default=0,
+    parser.add_argument('--fold', type=int, default=0, 
                         help='특정 fold 학습시 fold 번호')
 
     return parser.parse_args()
@@ -67,43 +77,62 @@ def train_fold(args, fold):
      # 폴드별 저장 디렉토리 생성
     fold_save_dir = os.path.join(args.save_dir, f'fold{fold}')
     os.makedirs(fold_save_dir, exist_ok=True)
-
+    
     # Transform 설정
-    train_transform = A.Compose([A.Resize(args.image_size, args.image_size)])
-
+    train_transform = A.Compose([A.Resize(args.image_size, args.image_size),
+                                 A.HorizontalFlip(p=0.5),
+                                 A.GridDistortion(p=0.5),
+                                 A.ElasticTransform(alpha=10.0, sigma=10.0, p=0.5),
+                                 A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.5), # hrnet(x)
+                                 A.Rotate(limit=45, p=0.5)]) # hrnet(x)
+							                  
+    val_transform = A.Compose([A.Resize(args.image_size, args.image_size)])
+    
     # 데이터셋 준비
-    train_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=True,
+    train_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=True, 
                                 transforms=train_transform, n_splits=args.n_splits, fold=fold)
-
-    valid_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=False,
-                                transforms=train_transform, n_splits=args.n_splits, fold=fold)
-
+    
+    valid_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=False, 
+                                transforms=val_transform, n_splits=args.n_splits, fold=fold)
+    
     # 데이터로더 설정
     train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True)
-
+    
     valid_loader = DataLoader(dataset=valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, drop_last=False)
 
-    # 모델 설정
-    model = build_unet3plus(num_classes=29, encoder='efficientnet-b5', pretrained=True)
-    model = model.cuda()
-
-    # 손실 함수 및 옵티마이저 설정
-    criterion = get_loss('combined', weights={'bce': 0.5, 'dice': 0.5})
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-6)
-
-    # Wandb 초기화
-    wandb.init(
-        project="hand_bone_segmentation",
+    # wandb 초기화 
+    run = wandb.init(
+        project="sweep",
         name=f"{args.wandb_name}_fold{fold}",
-        config={
-            "learning_rate": args.lr,
-            "epochs": args.max_epochs,
-            "batch_size": args.batch_size,
-            "image_size": args.image_size,
-            "fold": fold,
-            "n_splits": args.n_splits
-        }
+        config=args.__dict__  
     )
+
+   # 모델 설정
+    model = smp.UnetPlusPlus(
+        encoder_name='tu-hrnet_w64',
+        encoder_weights='imagenet',
+        in_channels=3,
+        classes=29
+    ).cuda()
+    
+    # Loss function 설정
+    criterion = get_loss('combined', weights={
+        'bce': args.bce_weight,
+        'dice': 1 - args.bce_weight
+    })
+
+    # optimizer 설정
+    optimizer = optim.AdamW(
+        model.parameters(), 
+        lr=args.learning_rate,
+        weight_decay=args.weight_decay
+    )
+
+    # scheduler 설정
+    if args.scheduler == 'cosine_annealing':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=args.num_epochs
+        )
 
     # 학습 시작
     best_dice = train(
@@ -112,15 +141,14 @@ def train_fold(args, fold):
         val_loader=valid_loader,
         criterion=criterion,
         optimizer=optimizer,
-        num_epochs=args.max_epochs,
+        scheduler=scheduler,
+        num_epochs=args.num_epochs,
         val_interval=args.val_interval,
-        save_dir=os.path.join(args.save_dir, f'fold{fold}')
+        save_dir=fold_save_dir
     )
-
     wandb.finish()
 
     return best_dice
-
 
 def main():
     args = parse_args()
