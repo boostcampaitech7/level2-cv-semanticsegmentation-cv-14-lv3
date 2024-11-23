@@ -15,7 +15,8 @@ from dataset import CLASSES
 
 '''
 - Source Code : https://github.com/boostcampaitech6/level2-cv-semanticsegmentation-cv-03/blob/main/utils/validation_ensemble_2class.py
-- ['Trapezoid', 'Pisiform'] 구분이 어려운 2개 category를 ensemble 합니다.
+- 구분이 어려운 2개 category('Trapezoid' & 'Pisiform')에 대하여 ensemble 합니다. (다른 값은 수정하지 않습니다.)
+- [Bug] 현재 코드는 정상적으로 작동하지만, 앙상블된 결과를 upstage에 제출하면 점수가 '-1'로 기록되는 문제가 있습니다.
 '''
 @dataclass
 class EnsembleConfig:
