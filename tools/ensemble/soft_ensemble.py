@@ -27,7 +27,6 @@ def parse_args():
     parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
                         help='Test image의 경로')
     parser.add_argument('--threshold', type=float, default=0.6)
-    parser.add_argument('--ensemble_type', type=str, choices=['hard', 'soft'], default='soft')
     parser.add_argument('--chunk_size', type=int, default=10)
 
     return parser.parse_args()
@@ -38,7 +37,6 @@ class EnsembleConfig:
     output_path: str
     image_dir: str
     threshold: float
-    ensemble_type: str
     height: int = 2048
     width: int = 2048
     chunk_size: int = 10  # Process images in chunks to save memory
@@ -113,10 +111,6 @@ def process_image_chunk(
 
             try:
                 mask = decode_rle_to_mask(row['rle'], config.height, config.width)
-                if config.ensemble_type == 'soft':
-                    ensemble[row['image_name']][row['class']] += mask.astype(np.float32)
-                else:  # hard
-                    ensemble[row['image_name']][row['class']] += mask
             except Exception as e:
                 warnings.warn(f"Error processing {row['image_name']}, class {row['class']}: {e}")
 
@@ -131,15 +125,11 @@ def create_final_predictions(
     """Create final predictions with proper thresholding."""
     predictions = []
 
-    for img_name, class_preds in tqdm(ensemble.items(), desc="Hard voting ensemble in progress..."):
+    for img_name, class_preds in tqdm(ensemble.items(), desc="Soft voting ensemble in progress..."):
         for bone in classes:
-            if config.ensemble_type == 'soft':
-                # Normalize and threshold probabilities
-                pred = class_preds[bone] / num_models
-                binary_mask = pred > config.threshold
-            else:  # hard
-                # Majority voting
-                binary_mask = class_preds[bone] > (num_models * config.threshold)
+            # Normalize and threshold probabilities
+            pred = class_preds[bone] / num_models
+            binary_mask = pred > config.threshold
 
             rle = encode_mask_to_rle(binary_mask.astype(np.uint8))
             predictions.append({
