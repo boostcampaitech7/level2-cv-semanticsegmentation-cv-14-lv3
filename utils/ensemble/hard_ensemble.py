@@ -4,6 +4,10 @@ import pandas as pd
 import copy
 import argparse
 from tqdm import tqdm
+from typing import List, Dict, Set, Tuple
+import warnings
+from dataclasses import dataclass
+from pathlib import Path
 
 sys.path.append("/data/ephemeral/home/ng-youn")
 from functions import encode_mask_to_rle, decode_rle_to_mask
@@ -12,181 +16,168 @@ from dataset import CLASSES
 '''
 - Source Code : https://github.com/boostcampaitech6/level2-cv-semanticsegmentation-cv-12/blob/main/utils/ensemble.ipynb
 - Method : Majority Voting ensemble (Hard)
+- 가중치 반영 없이, 5개의 csv file에서 3개의 csv file 이상에서 예측된 값을 결과로 저장합니다.
 '''
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Human Bone Image Segmentation Ensemble')
-
+    parser = argparse.ArgumentParser(description='Improved Human Bone Image Segmentation Ensemble')
     parser.add_argument('--output_dir', type=str, default='/data/ephemeral/home/ng-youn/output',
-                        help='Directory where output.csv files exist')
-    parser.add_argument('--output_path', type=str, default='ensemble_result.csv',
-                        help='Filename to save the ensemble result CSV')
+                        help='output.csv들이 위치한 폴더의 이름을 입력해주세요.')
+    parser.add_argument('--output_path', type=str, default='/data/ephemeral/home/ng-youn')
     parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
-                        help='Directory containing test images')
-    parser.add_argument('--threshold', type=float, default=3,
-                        help='Minimum number of models that must agree for a positive prediction')
-    parser.add_argument('--ensemble_type', type=str, choices=['hard', 'soft'], default='hard',
-                        help='Type of ensemble: hard (majority voting) or soft (probability averaging)')
+                        help='Test image의 경로')
+    parser.add_argument('--threshold', type=float, default=0.6)
+    parser.add_argument('--ensemble_type', type=str, choices=['hard', 'soft'], default='soft')
+    parser.add_argument('--chunk_size', type=int, default=10)
 
     return parser.parse_args()
+@dataclass
+class EnsembleConfig:
+    output_dir: str
+    output_path: str
+    image_dir: str
+    threshold: float
+    ensemble_type: str
+    height: int = 2048
+    width: int = 2048
+    chunk_size: int = 10  # Process images in chunks to save memory
 
+def validate_predictions(dfs: List[pd.DataFrame]) -> None:
+    """Validate consistency across prediction files."""
+    if not dfs:
+        raise ValueError("No prediction files provided")
 
-def load_csv_files(output_dir: str) -> list:
-    """Load all CSV files from the output directory with progress bar."""
+    # Check if all DataFrames have the same structure
+    base_df = dfs[0]
+    required_columns = {'image_name', 'class', 'rle'}
+
+    for idx, df in enumerate(dfs, 1):
+        if not set(df.columns).issuperset(required_columns):
+            raise ValueError(f"Prediction file {idx} missing required columns: {required_columns}")
+
+        # Check for matching image names and classes
+        if not set(df['image_name']).issubset(set(base_df['image_name'])):
+            raise ValueError(f"Prediction file {idx} has mismatched image names")
+        if not set(df['class']).issubset(set(base_df['class'])):
+            raise ValueError(f"Prediction file {idx} has mismatched classes")
+
+def load_csv_files(output_dir: str) -> List[pd.DataFrame]:
+    """Load and validate CSV files from the output directory."""
     outputs = []
-    csv_files = [f for f in os.listdir(output_dir) if f.endswith(".csv")]
+    csv_files = list(Path(output_dir).glob("*.csv"))
 
-    for output in tqdm(csv_files, desc="Loading CSV files"):
-        file_path = os.path.join(output_dir, output)
+    if not csv_files:
+        raise FileNotFoundError(f"No CSV files found in {output_dir}")
+
+    for file_path in tqdm(csv_files, desc="Loading CSV files"):
         try:
             df = pd.read_csv(file_path)
             outputs.append(df)
         except Exception as e:
-            print(f"Error loading {output}: {e}")
+            raise ValueError(f"Error loading {file_path}: {e}")
+
+    validate_predictions(outputs)
     return outputs
 
-
-def load_images(image_dir: str) -> set:
-    """Load all PNG image files from the image directory."""
-    if not os.path.exists(image_dir):
-        raise FileNotFoundError(f"Image directory not found: {image_dir}")
-
-    pngs = {
-        os.path.relpath(os.path.join(root, fname), start=image_dir)
-        for root, _dirs, files in os.walk(image_dir)
-        for fname in files
-        if os.path.splitext(fname)[1].lower() == ".png"
-    }
-    return pngs
-
-
-def initialize_ensemble_dict(pngs: set, classes: list, height: int, width: int) -> dict:
-    """Initialize the ensemble dictionary with zeros for each image and class."""
-    class_dict = {
-        bone: np.zeros((height, width), dtype=np.uint8)
-        for bone in tqdm(classes, desc="Initializing classes")
+def process_image_chunk(
+    image_names: List[str],
+    dfs: List[pd.DataFrame],
+    classes: List[str],
+    config: EnsembleConfig
+) -> Dict:
+    """Process a chunk of images to reduce memory usage."""
+    ensemble = {
+        img: {bone: np.zeros((config.height, config.width), dtype=np.float32)
+              for bone in classes}
+        for img in image_names
     }
 
-    return {
-        png[6:]: copy.deepcopy(class_dict)
-        for png in tqdm(pngs, desc="Initializing images")
-    }
-
-
-def process_predictions_hard(ensemble: dict, dfs: list, height: int, width: int) -> dict:
-    """Process predictions using hard voting (majority voting)."""
-    total_rows = sum(len(df) for df in dfs)
-    pbar = tqdm(total=total_rows, desc="Processing predictions (Hard Ensemble)")
-
-    for fold, df in enumerate(dfs):
-        for index, row in df.iterrows():
+    for df in dfs:
+        chunk_df = df[df['image_name'].isin(image_names)]
+        for _, row in chunk_df.iterrows():
             if pd.isna(row['rle']):
-                print(f'Warning: Missing RLE in fold {fold}, index {index}')
-                pbar.update(1)
+                warnings.warn(f"Missing RLE for {row['image_name']}, class {row['class']}")
                 continue
 
             try:
-                mask_img = decode_rle_to_mask(row['rle'], height, width)
-                ensemble[row['image_name']][row['class']] += mask_img
+                mask = decode_rle_to_mask(row['rle'], config.height, config.width)
+                if config.ensemble_type == 'soft':
+                    ensemble[row['image_name']][row['class']] += mask.astype(np.float32)
+                else:  # hard
+                    ensemble[row['image_name']][row['class']] += mask
             except Exception as e:
-                print(f'Error processing fold {fold}, index {index}: {e}')
-                print(row)
-            pbar.update(1)
-
-    pbar.close()
-    return ensemble
-
-
-def process_predictions_soft(ensemble: dict, dfs: list, height: int, width: int) -> dict:
-    """Process predictions using soft voting (averaging probabilities)."""
-    num_models = len(dfs)
-    total_rows = sum(len(df) for df in dfs)
-    pbar = tqdm(total=total_rows, desc="Processing predictions (Soft Ensemble)")
-
-    for fold, df in enumerate(dfs):
-        for index, row in df.iterrows():
-            if pd.isna(row['rle']):
-                print(f'Warning: Missing RLE in fold {fold}, index {index}')
-                pbar.update(1)
-                continue
-
-            try:
-                mask_img = decode_rle_to_mask(row['rle'], height, width)
-                ensemble[row['image_name']][row['class']] += mask_img.astype(float)
-            except Exception as e:
-                print(f'Error processing fold {fold}, index {index}: {e}')
-                print(row)
-            pbar.update(1)
-
-    pbar.close()
-
-    # Convert accumulated sum to probability
-    for img_name in tqdm(ensemble, desc="Computing probabilities"):
-        for class_name in ensemble[img_name]:
-            ensemble[img_name][class_name] /= num_models
+                warnings.warn(f"Error processing {row['image_name']}, class {row['class']}: {e}")
 
     return ensemble
 
-
-def create_final_predictions(ensemble: dict, threshold: float, pngs: set, classes: list) -> pd.DataFrame:
-    """Create final predictions by applying threshold."""
+def create_final_predictions(
+    ensemble: Dict,
+    config: EnsembleConfig,
+    num_models: int,
+    classes: List[str]
+) -> pd.DataFrame:
+    """Create final predictions with proper thresholding."""
     predictions = []
 
-    for png in tqdm(pngs, desc="Creating final predictions"):
-        image_name = png[6:]
+    for img_name, class_preds in tqdm(ensemble.items(), desc="앙상블 앙상블 앙상블"):
         for bone in classes:
-            binary_arr = np.where(ensemble[image_name][bone] > threshold, 1, 0)
-            rle = encode_mask_to_rle(binary_arr)
+            if config.ensemble_type == 'soft':
+                # Normalize and threshold probabilities
+                pred = class_preds[bone] / num_models
+                binary_mask = pred > config.threshold
+            else:  # hard
+                # Majority voting
+                binary_mask = class_preds[bone] > (num_models * config.threshold)
+
+            rle = encode_mask_to_rle(binary_mask.astype(np.uint8))
             predictions.append({
-                "image_name": image_name,
+                "image_name": img_name,
                 "class": bone,
                 "rle": rle
             })
 
     return pd.DataFrame(predictions)
 
-
 def main():
     args = parse_args()
-    height, width = 2048, 2048
+    config = EnsembleConfig(**vars(args))
 
     try:
         print("\n=== Starting Ensemble Process ===")
-        pngs = load_images(args.image_dir)
-        print(f"Found {len(pngs)} images")
 
-        dfs = load_csv_files(args.output_dir)
-        if not dfs:
-            raise ValueError("No CSV files found in output directory")
-        print(f"Loaded {len(dfs)} model predictions")
+        # Load and validate predictions
+        dfs = load_csv_files(config.output_dir)
+        num_models = len(dfs)
+        print(f"Loaded {num_models} valid model predictions")
 
-        # Initialize ensemble dictionary
-        ensemble = initialize_ensemble_dict(pngs, CLASSES, height, width)
+        # Get unique image names and classes
+        all_images = sorted(set(dfs[0]['image_name']))
+        classes = sorted(set(dfs[0]['class']))
 
-        # Process predictions based on ensemble type
-        if args.ensemble_type == 'soft':
-            ensemble = process_predictions_soft(ensemble, dfs, height, width)
-            # For soft ensemble, threshold should typically be around 0.5
-            threshold = args.threshold if args.threshold <= 1 else 0.5
-        else:  # hard ensemble
-            ensemble = process_predictions_hard(ensemble, dfs, height, width)
-            threshold = args.threshold
+        # Process images in chunks
+        final_predictions = []
+        for i in range(0, len(all_images), config.chunk_size):
+            chunk_images = all_images[i:i + config.chunk_size]
+            chunk_ensemble = process_image_chunk(chunk_images, dfs, classes, config)
 
-        # Create final predictions
-        df = create_final_predictions(ensemble, threshold, pngs, CLASSES)
+            # Convert chunk results to predictions
+            chunk_df = create_final_predictions(chunk_ensemble, config, num_models, classes)
+            final_predictions.append(chunk_df)
+
+        # Combine all predictions
+        final_df = pd.concat(final_predictions, ignore_index=True)
 
         # Save results
-        output_path = os.path.join(args.output_dir, args.output_path)
-        df.to_csv(output_path, index=False)
-        print(f"\nSaved ensemble results to {output_path}")
-        print(f"Total predictions: {len(df)}")
+        output_path = Path(config.output_dir) / config.output_path
+        final_df.to_csv(output_path, index=False)
+        print(f"\nSuccessfully saved ensemble results to {output_path}")
+        print(f"Total predictions: {len(final_df)}")
 
-        return df
+        return final_df
 
     except Exception as e:
-        print(f"\nError in ensemble process: {e}")
+        print(f"\nCritical error in ensemble process: {e}")
         raise
-
 
 if __name__ == '__main__':
     main()
