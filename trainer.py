@@ -103,7 +103,8 @@ def train(model, data_loader, val_loader, criterion, optimizer, scheduler, num_e
                 dice, val_loss, class_val_losses, worst_samples, dices_per_class = validation(
                 epoch + 1, model, val_loader, criterion)
                 cls = CLASSES
-            
+
+            # scheduler
             scheduler.step()
 
             # Learning rate 로깅 추가
@@ -166,7 +167,7 @@ def validation(epoch, model, data_loader, criterion, thr=0.5, num_worst_samples=
     with torch.no_grad():
         for step, (images, masks) in tqdm(enumerate(data_loader), total=len(data_loader)):
             images, masks = images.cuda(), masks.cuda()
-            outputs = model(images)['out']
+            outputs = model(images)
             # outputs = model(images)
 
             output_h, output_w = outputs.size(-2), outputs.size(-1)
@@ -298,7 +299,7 @@ def validation_roi(epoch, model, data_loader, criterion, thr=0.5, num_worst_samp
 def save_model(model, model_path):
     torch.save(model, model_path)
 
-def set_seed(seed=123):
+def set_seed(seed=123): #21
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)

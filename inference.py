@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from torch.utils.data import DataLoader
+from torchvision.models.segmentation import fcn_resnet50
 from functions import encode_mask_to_rle
 from dataset import IND2CLASS, XRayInferenceDataset, RoiXRayInferenceDataset
 
@@ -26,6 +27,8 @@ def parse_args():
                         help='결과 저장할 CSV 파일 경로')
     parser.add_argument('--img_size', type=int, default=512,
                         help='입력 이미지 크기')
+    parser.add_argument('--num_classes', type=int, default=len(IND2CLASS),
+                        help='클래스 개수')
     
     # ROI영역 추론
     parser.add_argument('--use_roi', action='store_true',
@@ -83,7 +86,6 @@ def test_roi(model, data_loader, csv_file, thr=0.5):
                     filename_and_class.append(f"{IND2CLASS[c]}_{image_name}")
 
     return rles, filename_and_class
-
 def test(model, data_loader, thr=0.5):
     model = model.cuda()
     model.eval()
@@ -108,12 +110,58 @@ def test(model, data_loader, thr=0.5):
 
     return rles, filename_and_class
 
+def load_model(model_path, num_classes):
+    # 모델 아키텍처 초기화
+    model = fcn_resnet50(weights=None)
+    model.classifier[4] = torch.nn.Conv2d(512, num_classes, kernel_size=(1, 1), stride=(1, 1))
+
+    # 저장된 모델 로드
+    print(f"Loading model from {model_path}")
+    checkpoint = torch.load(model_path)
+
+    # 체크포인트 구조 확인
+    if isinstance(checkpoint, dict):
+        print("Checkpoint keys:", checkpoint.keys())
+        if 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        elif 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        else:
+            state_dict = checkpoint
+    else:
+        state_dict = checkpoint
+
+    # state_dict 키 확인
+    print("\nFirst few state_dict keys:", list(state_dict.keys())[:5])
+    print("\nModel state_dict keys:", list(model.state_dict().keys())[:5])
+
+    # 키 불일치 확인
+    model_keys = set(model.state_dict().keys())
+    state_dict_keys = set(state_dict.keys())
+    missing_keys = model_keys - state_dict_keys
+    unexpected_keys = state_dict_keys - model_keys
+
+    if missing_keys:
+        print("\nMissing keys:", missing_keys)
+    if unexpected_keys:
+        print("\nUnexpected keys:", unexpected_keys)
+
+    # state_dict 키 수정이 필요한 경우
+    if any(key.startswith('module.') for key in state_dict.keys()):
+        print("\nRemoving 'module.' prefix from state_dict keys")
+        state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+
+    # strict=False로 로드 시도
+    model.load_state_dict(state_dict, strict=False)
+    print("\nModel loaded successfully")
+
+    return model
 
 def main():
     args = parse_args()
 
     # 모델 로드
-    model = torch.load(args.model_path)
+    model = load_model(args.model_path, args.num_classes)
 
     # 데이터셋 및 데이터로더 설정
     tf = A.Compose([
