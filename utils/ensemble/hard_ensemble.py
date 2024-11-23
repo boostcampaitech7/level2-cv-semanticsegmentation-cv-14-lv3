@@ -31,6 +31,7 @@ def parse_args():
     parser.add_argument('--chunk_size', type=int, default=10)
 
     return parser.parse_args()
+
 @dataclass
 class EnsembleConfig:
     output_dir: str
@@ -41,6 +42,17 @@ class EnsembleConfig:
     height: int = 2048
     width: int = 2048
     chunk_size: int = 10  # Process images in chunks to save memory
+
+def check_paths(config: EnsembleConfig) -> None:
+    """Check if the provided paths are valid."""
+    if not Path(config.output_dir).exists():
+        raise FileNotFoundError(f"Output directory does not exist: {config.output_dir}")
+
+    if not Path(config.image_dir).exists():
+        raise FileNotFoundError(f"Image directory does not exist: {config.image_dir}")
+
+    if not Path(config.output_path).parent.exists():
+        raise FileNotFoundError(f"Output path's parent directory does not exist: {Path(config.output_path).parent}")
 
 def validate_predictions(dfs: List[pd.DataFrame]) -> None:
     """Validate consistency across prediction files."""
@@ -119,7 +131,7 @@ def create_final_predictions(
     """Create final predictions with proper thresholding."""
     predictions = []
 
-    for img_name, class_preds in tqdm(ensemble.items(), desc="앙상블 앙상블 앙상블"):
+    for img_name, class_preds in tqdm(ensemble.items(), desc="Hard voting ensemble in progress..."):
         for bone in classes:
             if config.ensemble_type == 'soft':
                 # Normalize and threshold probabilities
@@ -144,6 +156,9 @@ def main():
 
     try:
         print("\n=== Starting Ensemble Process ===")
+
+        # Check paths validity
+        check_paths(config)
 
         # Load and validate predictions
         dfs = load_csv_files(config.output_dir)
