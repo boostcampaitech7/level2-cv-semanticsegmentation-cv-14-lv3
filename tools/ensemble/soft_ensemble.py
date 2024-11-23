@@ -41,8 +41,8 @@ class EnsembleConfig:
 
 def check_paths(config: EnsembleConfig) -> None:
     """Check if the provided paths are valid."""
-    if not Path(config.output_dir).exists():
-        raise FileNotFoundError(f"Output directory does not exist: {config.output_dir}")
+    if not Path(config.output_path).exists():
+        raise FileNotFoundError(f"Output directory does not exist: {config.output_path}")
 
     if not Path(config.image_dir).exists():
         raise FileNotFoundError(f"Image directory does not exist: {config.image_dir}")

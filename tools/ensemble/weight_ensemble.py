@@ -27,6 +27,7 @@ def parse_args():
     parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
                         help='Test image의 경로')
     parser.add_argument('--threshold', type=float, default=0.6)
+
     return parser.parse_args()
 
 @dataclass
@@ -149,6 +150,7 @@ def create_final_predictions(
     predictions = []
 
     for img_name, class_preds in tqdm(ensemble.items(), desc="Weight voting ensemble in progress..."):
+
         for bone in classes:
             # For weighted ensemble, we already have weighted sum
             binary_mask = class_preds[bone] > config.threshold
