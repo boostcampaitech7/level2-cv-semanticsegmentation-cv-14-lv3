@@ -58,7 +58,8 @@ def test_roi(model, data_loader, csv_file, thr=0.5):
     with torch.no_grad():
         for step, (images, image_names) in tqdm(enumerate(data_loader), total=len(data_loader)):
             images = images.cuda()
-            outputs = model(images)['out']
+            # outputs = model(images)['out']
+            outputs = model(images)
             image_name = image_names[0]
 
             # bbox 크기 확인
@@ -80,15 +81,6 @@ def test_roi(model, data_loader, csv_file, thr=0.5):
                     rle = encode_mask_to_rle(final_output)
                     rles.append(rle)
                     filename_and_class.append(f"{IND2CLASS[c]}_{image_name}")
-            # 시각화
-            # plt.figure(figsize=(10, 10))
-            # image_path = os.path.join('../data/test/DCM', image_name)
-        
-            # image = cv2.imread(image_path)
-            # visualize_prediction(image, final_output)
-            # _, file_name = image_name.split("\\")
-            # plt.savefig(f"roi_final/roi_{file_name}", bbox_inches='tight')
-            # plt.close()
 
     return rles, filename_and_class
 

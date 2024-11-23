@@ -81,7 +81,8 @@ def train_fold(args, fold, use_roi = False, roi_path = 'roi_train.csv'):
                                     alpha=10.0,
                                     sigma=10.0,
                                     alpha_affine=0.1,
-                                    p=0.5)])
+                                    p=0.5)
+                                    ])
     val_transform = A.Compose([A.Resize(args.image_size, args.image_size)])
     
     # 데이터셋 준비
@@ -102,12 +103,23 @@ def train_fold(args, fold, use_roi = False, roi_path = 'roi_train.csv'):
     valid_loader = DataLoader(dataset=valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, drop_last=False)
     
     # 모델 설정
-    model = build_unet3plus(num_classes=29, encoder='resnet50', pretrained=True)
+    # model = build_unet3plus(num_classes=29, encoder='resnet50', pretrained=True)
+    model = smp.UnetPlusPlus(
+        encoder_name='tu-hrnet_w64',
+        encoder_weights= 'imagenet', 
+        # encoder_weights= None,
+        in_channels=3,                  
+        classes=29                      
+    )
     model = model.cuda()
     
     # 손실 함수 및 옵티마이저 설정
     criterion = get_loss('combined', weights={'bce': 0.5, 'dice': 0.5})
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-6)
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.max_epochs
+    )
     
     # Wandb 초기화
     wandb.init(
@@ -130,6 +142,7 @@ def train_fold(args, fold, use_roi = False, roi_path = 'roi_train.csv'):
         val_loader=valid_loader,
         criterion=criterion,
         optimizer=optimizer,
+        scheduler=scheduler,
         num_epochs=args.max_epochs,
         val_interval=args.val_interval,
         save_dir=os.path.join(args.save_dir, f'fold{fold}'),

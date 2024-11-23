@@ -13,6 +13,11 @@ from functions import dice_coef
 import matplotlib.pyplot as plt
 from tools.streamlit.visualize import visualize_prediction
 
+WRIST_CLASSES = [
+    'Trapezium',
+    'Trapezoid', 'Capitate', 'Hamate', 'Scaphoid', 'Lunate',
+    'Triquetrum', 'Pisiform'
+]
 
 def convert_seconds_to_hms(seconds):
     """초를 시, 분, 초로 변환하는 함수"""
@@ -21,7 +26,7 @@ def convert_seconds_to_hms(seconds):
     seconds = seconds % 60
     return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
 
-def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_interval, save_dir, use_roi = False):
+def train(model, data_loader, val_loader, criterion, optimizer, scheduler, num_epochs, val_interval, save_dir, use_roi = False):
     print('Start training..')
 
     best_dice = 0.
@@ -41,9 +46,13 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
                 images, masks = images.cuda(), masks.cuda()
                 model = model.cuda()
 
-                outputs = model(images)['out']
-                # outputs = model(images)
-                loss = criterion(outputs, masks)
+                # outputs = model(images)['out']
+                outputs = model(images)
+                # roi를 사용할 시 손목 뼈 클래스만을 loss 계산에 사용
+                if use_roi:
+                    loss = criterion(outputs[:, 19:27], masks[:, 19:27])
+                else:
+                    loss = criterion(outputs, masks)
 
                 # 클래스별 손실 계산
                 for c in range(len(CLASSES)):
@@ -89,9 +98,17 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
             if use_roi:
                 dice, val_loss, class_val_losses, worst_samples, dices_per_class = validation_roi(
                 epoch + 1, model, val_loader, criterion)
+                cls = WRIST_CLASSES
             else:
                 dice, val_loss, class_val_losses, worst_samples, dices_per_class = validation(
                 epoch + 1, model, val_loader, criterion)
+                cls = CLASSES
+            
+            scheduler.step()
+
+            # Learning rate 로깅 추가
+            current_lr = optimizer.param_groups[0]['lr']
+            metrics["learning_rate"] = current_lr
 
             # Wandb 로깅 - validation metrics
             metrics.update({
@@ -100,12 +117,15 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
                 **{f"val_loss_per_class/{c}": loss
                    for c, loss in zip(CLASSES, class_val_losses)}, # 클래스별 validation loss
                 **{f"val_dice_per_class/{c}": d.item()
-                   for c, d in zip(CLASSES, dices_per_class)} # 클래스별 validation dice
+                   for c, d in zip(cls, dices_per_class)} # 클래스별 validation dice
             })
 
             # Worst samples 시각화
             for idx, (img, pred, true_mask, dice_score) in enumerate(worst_samples):
-                fig = visualize_prediction(img, pred, true_mask)
+                if use_roi:
+                    fig = visualize_prediction(img, pred[19:27], true_mask[19:27])
+                else:
+                    fig = visualize_prediction(img, pred, true_mask)
                 metrics[f"worst_sample_{idx+1}"] = wandb.Image(fig,
                     caption=f"Dice Score: {dice_score:.4f}")
                 plt.close(fig)
@@ -213,8 +233,8 @@ def validation_roi(epoch, model, data_loader, criterion, thr=0.5, num_worst_samp
     with torch.no_grad():
         for step, (images, masks) in tqdm(enumerate(data_loader), total=len(data_loader)):
             images, masks = images.cuda(), masks.cuda()
-            outputs = model(images)['out']
-            # outputs = model(images)
+            # outputs = model(images)['out']
+            outputs = model(images)
 
             output_h, output_w = outputs.size(-2), outputs.size(-1)
             mask_h, mask_w = masks.size(-2), masks.size(-1)
@@ -238,7 +258,7 @@ def validation_roi(epoch, model, data_loader, criterion, thr=0.5, num_worst_samp
             masks = masks.detach().cpu()
 
             # 배치 내 각 이미지에 대한 Dice score 계산
-            batch_dices = dice_coef(outputs, masks)
+            batch_dices = dice_coef(outputs[:, 19:27], masks[:, 19:27])
             dices.append(batch_dices)
 
             # worst samples 수집
@@ -255,13 +275,13 @@ def validation_roi(epoch, model, data_loader, criterion, thr=0.5, num_worst_samp
     dices_per_class = torch.mean(dices, 0)
 
     # 손목 클래스에 대한 평균 Dice 계산
-    target_classes = list(range(19, 27))  # 원하는 클래스 인덱스
-    dices_target_classes = dices[:, target_classes]  # 해당 클래스들만 선택
-    avg_dice_target = torch.mean(dices_target_classes).item()  # 선택된 클래스들의 평균 Dice
+    # target_classes = list(range(19, 27))  # 원하는 클래스 인덱스
+    # dices_target_classes = dices[:, target_classes]  # 해당 클래스들만 선택
+    avg_dice_target = torch.mean(dices_per_class).item()  # 선택된 클래스들의 평균 Dice
 
     dice_str = [
         f"{c:<12}: {d.item():.4f}"
-        for c, d in zip(CLASSES, dices_per_class)
+        for c, d in zip(WRIST_CLASSES, dices_per_class)
     ]
     dice_str = "\n".join(dice_str)
     print(dice_str)

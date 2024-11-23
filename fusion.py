@@ -3,8 +3,8 @@ import numpy as np
 from tqdm import tqdm
 
 # Load the two CSV files
-df1 = pd.read_csv('hori_ela_grid_output_roi.csv')
-df2 = pd.read_csv('base_output.csv')
+df1 = pd.read_csv('upp_hr_CLAHE_pre.csv')
+df2 = pd.read_csv('hr_sweep1.csv')
 
 # Define the classes to take from df1 and df2
 df1_classes = set(range(19, 27))
