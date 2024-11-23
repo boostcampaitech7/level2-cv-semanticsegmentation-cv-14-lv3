@@ -27,7 +27,7 @@ def parse_args():
     parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
                         help='Test image의 경로')
     parser.add_argument('--threshold', type=float, default=0.6)
-    parser.add_argument('--chunk_size', type=int, default=10)
+    parser.add_argument('--chunk_size', type=int, default=100)
 
     return parser.parse_args()
 
@@ -39,12 +39,12 @@ class EnsembleConfig:
     threshold: float
     height: int = 2048
     width: int = 2048
-    chunk_size: int = 10  # Process images in chunks to save memory
+    chunk_size: int = 100  # Process images in chunks to save memory
 
 def check_paths(config: EnsembleConfig) -> None:
     """Check if the provided paths are valid."""
-    if not Path(config.output_dir).exists():
-        raise FileNotFoundError(f"Output directory does not exist: {config.output_dir}")
+    if not Path(config.output_path).exists():
+        raise FileNotFoundError(f"Output directory does not exist: {config.output_path}")
 
     if not Path(config.image_dir).exists():
         raise FileNotFoundError(f"Image directory does not exist: {config.image_dir}")
