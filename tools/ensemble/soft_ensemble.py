@@ -27,7 +27,6 @@ def parse_args():
     parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
                         help='Test image의 경로')
     parser.add_argument('--threshold', type=float, default=0.6)
-    parser.add_argument('--chunk_size', type=int, default=10)
 
     return parser.parse_args()
 
@@ -39,7 +38,6 @@ class EnsembleConfig:
     threshold: float
     height: int = 2048
     width: int = 2048
-    chunk_size: int = 10  # Process images in chunks to save memory
 
 def check_paths(config: EnsembleConfig) -> None:
     """Check if the provided paths are valid."""
@@ -89,13 +87,13 @@ def load_csv_files(output_dir: str) -> List[pd.DataFrame]:
     validate_predictions(outputs)
     return outputs
 
-def process_image_chunk(
+def process_images(
     image_names: List[str],
     dfs: List[pd.DataFrame],
     classes: List[str],
     config: EnsembleConfig
 ) -> Dict:
-    """Process a chunk of images to reduce memory usage."""
+    """Process all images at once."""
     ensemble = {
         img: {bone: np.zeros((config.height, config.width), dtype=np.float32)
               for bone in classes}
@@ -103,14 +101,14 @@ def process_image_chunk(
     }
 
     for df in dfs:
-        chunk_df = df[df['image_name'].isin(image_names)]
-        for _, row in chunk_df.iterrows():
+        for _, row in df.iterrows():
             if pd.isna(row['rle']):
                 warnings.warn(f"Missing RLE for {row['image_name']}, class {row['class']}")
                 continue
 
             try:
                 mask = decode_rle_to_mask(row['rle'], config.height, config.width)
+                ensemble[row['image_name']][row['class']] += mask.astype(np.float32)
             except Exception as e:
                 warnings.warn(f"Error processing {row['image_name']}, class {row['class']}: {e}")
 
@@ -159,18 +157,11 @@ def main():
         all_images = sorted(set(dfs[0]['image_name']))
         classes = sorted(set(dfs[0]['class']))
 
-        # Process images in chunks
-        final_predictions = []
-        for i in range(0, len(all_images), config.chunk_size):
-            chunk_images = all_images[i:i + config.chunk_size]
-            chunk_ensemble = process_image_chunk(chunk_images, dfs, classes, config)
+        # Process all images at once
+        ensemble_results = process_images(all_images, dfs, classes, config)
 
-            # Convert chunk results to predictions
-            chunk_df = create_final_predictions(chunk_ensemble, config, num_models, classes)
-            final_predictions.append(chunk_df)
-
-        # Combine all predictions
-        final_df = pd.concat(final_predictions, ignore_index=True)
+        # Create final predictions
+        final_df = create_final_predictions(ensemble_results, config, num_models, classes)
 
         # Save results
         output_path = Path(config.output_dir) / config.output_path
