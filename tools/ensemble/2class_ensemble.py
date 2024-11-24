@@ -1,150 +1,205 @@
-import sys
+import os, sys
 import numpy as np
 import pandas as pd
+import copy
 import argparse
 from tqdm import tqdm
 from typing import List, Dict, Set, Tuple
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-import random
 
 sys.path.append("/data/ephemeral/home/ng-youn")
 from functions import encode_mask_to_rle, decode_rle_to_mask
 from dataset import CLASSES
 
 '''
-- Source Code : https://github.com/boostcampaitech6/level2-cv-semanticsegmentation-cv-03/blob/main/utils/validation_ensemble_2class.py
-- 구분이 어려운 2개 category('Trapezoid' & 'Pisiform')에 대하여 ensemble 합니다. (다른 값은 수정하지 않습니다.)
-- [Bug] 현재 코드는 정상적으로 작동하지만, 앙상블된 결과를 upstage에 제출하면 점수가 '-1'로 기록되는 문제가 있습니다.
+- Method : Weight Voting ensemble
+- 이 코드를 실행하기 위해서는, 파일 이름이 아래와 같은 형식으로 저장되어야 합니다.
+- 9743.csv, 9738.csv, 9745.csv, ... (가중치의 역할을 합니다.)
+    ng-youn (User name)
+    ├─ output : 9743.csv, 9738.csv, 9745.csv, ...
+    ├─ tools
+    │  ├─ ensemble
+    │  │  ├─ 2class_ensemble.py
+    │  │  ├─ soft_ensemble.py
+    │  │  └─ weight_ensemble.py  # This is where the main script resides
+    │  └─ streamlit
+    ├─ functions.py               # Required for encode_mask_to_rle and decode_rle_to_mask
+    ├─ dataset.py
 '''
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Weight Voting Ensemble')
+    parser.add_argument('--input_dir', type=str, default='/data/ephemeral/home/ng-youn/output',
+                        help='output.csv들이 위치한 폴더의 이름을 입력해주세요.')
+    parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
+                        help='Test image의 경로')
+    parser.add_argument('--threshold', type=float, default=0.6)
+    return parser.parse_args()
+
 @dataclass
 class EnsembleConfig:
-    output_dir: str
-    output_path: str
+    input_dir: str
     image_dir: str
     threshold: float
-    ensemble_type: str
-    target_classes: List[str] = ('Trapezoid', 'Pisiform')
     height: int = 2048
     width: int = 2048
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Human Bone Image Segmentation Ensemble')
-    parser.add_argument('--output_dir', type=str, default='/data/ephemeral/home/ng-youn/output',
-                        help='Directory where output.csv files exist')
-    parser.add_argument('--output_path', type=str, default='ensemble_result.csv',
-                        help='Path to save the ensemble result CSV')
-    parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
-                        help='Directory containing test images')
-    parser.add_argument('--threshold', type=float, default=0.6,
-                        help='Threshold for ensemble agreement')
-    parser.add_argument('--ensemble_type', type=str, choices=['hard', 'soft'], default='soft',
-                        help='Type of ensemble: hard (majority voting) or soft (probability averaging)')
+def check_paths(config: EnsembleConfig) -> None:
+    """Check if the provided paths are valid."""
+    if not Path(config.input_dir).exists():
+        raise FileNotFoundError(f"Input directory does not exist: {config.input_dir}")
 
-    return parser.parse_args()
+    if not Path(config.image_dir).exists():
+        raise FileNotFoundError(f"Image directory does not exist: {config.image_dir}")
 
-def validate_predictions(dfs: List[pd.DataFrame], target_classes: Tuple[str, str]) -> None:
-    """Validate consistency across prediction files for target classes."""
+def calculate_weights_from_filenames(csv_files: List[Path]) -> List[float]:
+    """
+    Calculate weights based on the scores in filenames.
+    Higher scores get higher weights.
+    """
+    # Extract scores from filenames
+    scores = [float(f.stem) for f in csv_files]
+
+    # Convert to numpy array for easier manipulation
+    scores = np.array(scores)
+
+    # Normalize scores to create weights that sum to 1
+    weights = scores / scores.sum()
+
+    # Print weight information for verification
+    for file, weight in zip(csv_files, weights):
+        print(f"File: {file.name}, Weight: {weight:.4f}")
+
+    return weights.tolist()
+
+def validate_predictions(dfs: List[pd.DataFrame], weights: List[float]) -> None:
+    """Validate consistency across prediction files and weights."""
     if not dfs:
         raise ValueError("No prediction files provided")
 
+    if len(dfs) != len(weights):
+        raise ValueError(f"Number of models ({len(dfs)}) does not match number of weights ({len(weights)})")
+
+    base_df = dfs[0]
     required_columns = {'image_name', 'class', 'rle'}
+
     for idx, df in enumerate(dfs, 1):
         if not set(df.columns).issuperset(required_columns):
-            raise ValueError(f"Prediction file {idx} missing required columns")
+            raise ValueError(f"Prediction file {idx} missing required columns: {required_columns}")
 
-        if not set(df['class']).issuperset(set(target_classes)):
-            raise ValueError(f"Prediction file {idx} missing target classes: {target_classes}")
+        if not set(df['image_name']).issubset(set(base_df['image_name'])):
+            raise ValueError(f"Prediction file {idx} has mismatched image names")
+        if not set(df['class']).issubset(set(base_df['class'])):
+            raise ValueError(f"Prediction file {idx} has mismatched classes")
 
-def load_csv_files(output_dir: str, target_classes: Tuple[str, str]) -> List[pd.DataFrame]:
-    """Load and validate CSV files, filtering for target classes."""
-    outputs = []
-    csv_files = list(Path(output_dir).glob("*.csv"))
+def load_csv_files(input_dir: str) -> Tuple[List[pd.DataFrame], List[float]]:
+    """Load CSV files and calculate weights based on filenames."""
+    csv_files = sorted(Path(input_dir).glob("*.csv"))
 
     if not csv_files:
-        raise FileNotFoundError(f"No CSV files found in {output_dir}")
+        raise FileNotFoundError(f"No CSV files found in {input_dir}")
 
+    # Calculate weights based on filenames
+    weights = calculate_weights_from_filenames(csv_files)
+
+    # Load DataFrame
+    outputs = []
     for file_path in tqdm(csv_files, desc="Loading CSV files"):
         try:
             df = pd.read_csv(file_path)
-            # Filter for target classes
-            df_filtered = df[df['class'].isin(target_classes)].copy()
-            outputs.append(df_filtered)
+            outputs.append(df)
         except Exception as e:
             raise ValueError(f"Error loading {file_path}: {e}")
 
-    validate_predictions(outputs, target_classes)
-    return outputs
+    return outputs, weights
 
-def process_predictions(
+def process_images(
+    image_names: List[str],
     dfs: List[pd.DataFrame],
-    config: EnsembleConfig
+    classes: List[str],
+    config: EnsembleConfig,
+    weights: List[float]
+) -> Dict:
+    """Process all images with weighted voting."""
+    ensemble = {
+        img: {bone: np.zeros((config.height, config.width), dtype=np.float32)
+              for bone in classes}
+        for img in image_names
+    }
+
+    for df, weight in zip(dfs, weights):
+        for _, row in df.iterrows():
+            if pd.isna(row['rle']):
+                warnings.warn(f"Missing RLE for {row['image_name']}, class {row['class']}")
+                continue
+
+            try:
+                mask = decode_rle_to_mask(row['rle'], config.height, config.width)
+                ensemble[row['image_name']][row['class']] += mask.astype(np.float32) * weight
+
+            except Exception as e:
+                warnings.warn(f"Error processing {row['image_name']}, class {row['class']}: {e}")
+
+    return ensemble
+
+def create_final_predictions(
+    ensemble: Dict,
+    config: EnsembleConfig,
+    num_models: int,
+    classes: List[str]
 ) -> pd.DataFrame:
-    """Process predictions using adaptive sampling and weighted ensemble."""
-    # Adaptive sampling of input predictions
-    num_models = random.randint(max(2, len(dfs) // 2), len(dfs))
-    selected_dfs = random.sample(dfs, num_models)
-    weights = [1/num_models] * num_models
+    """Create final predictions with weighted thresholding."""
+    predictions = []
 
-    # Get unique image names
-    image_names = sorted(set(dfs[0]['image_name']))
+    for img_name, class_preds in tqdm(ensemble.items(), desc="Weight voting ensemble in progress..."):
+        for bone in classes:
+            # For weighted ensemble, we already have weighted sum
+            binary_mask = class_preds[bone] > config.threshold
 
-    final_predictions = []
-    for img_name in tqdm(image_names, desc="Processing predictions"):
-        for target_class in config.target_classes:
-            weighted_masks = []
-
-            # Collect masks from all selected models
-            for df, weight in zip(selected_dfs, weights):
-                mask_row = df[(df['image_name'] == img_name) & (df['class'] == target_class)]
-                if not mask_row.empty and not pd.isna(mask_row.iloc[0]['rle']):
-                    try:
-                        mask = decode_rle_to_mask(mask_row.iloc[0]['rle'], config.height, config.width)
-                        weighted_masks.append(mask.astype(np.float32) * weight)
-                    except Exception as e:
-                        warnings.warn(f"Error processing mask for {img_name}, {target_class}: {e}")
-                        weighted_masks.append(np.zeros((config.height, config.width), dtype=np.float32))
-                else:
-                    weighted_masks.append(np.zeros((config.height, config.width), dtype=np.float32))
-
-            # Combine masks
-            if config.ensemble_type == 'soft':
-                combined_mask = sum(weighted_masks)
-                final_mask = (combined_mask > config.threshold).astype(np.uint8)
-            else:  # hard voting
-                combined_mask = sum([mask > 0 for mask in weighted_masks])
-                final_mask = (combined_mask >= (num_models * config.threshold)).astype(np.uint8)
-
-            # Encode result
-            rle = encode_mask_to_rle(final_mask)
-            final_predictions.append({
-                'image_name': img_name,
-                'class': target_class,
-                'rle': rle
+            rle = encode_mask_to_rle(binary_mask.astype(np.uint8))
+            predictions.append({
+                "image_name": img_name,
+                "class": bone,
+                "rle": rle
             })
 
-    return pd.DataFrame(final_predictions)
+    return pd.DataFrame(predictions)
 
 def main():
     args = parse_args()
     config = EnsembleConfig(**vars(args))
 
     try:
-        print("\n=== Starting 2-Class Ensemble Process ===")
-        print(f"Target classes: {config.target_classes}")
+        print("\n=== Starting Score-based Weighted Ensemble Process ===")
 
-        # Load and validate predictions
-        dfs = load_csv_files(config.output_dir, config.target_classes)
-        print(f"Loaded {len(dfs)} valid model predictions")
+        # Check paths validity
+        check_paths(config)
 
-        # Process predictions
-        final_df = process_predictions(dfs, config)
+        # Load predictions and calculate weights
+        dfs, weights = load_csv_files(config.input_dir)
 
-        # Save results
-        output_path = Path(config.output_dir) / config.output_path
+        # Validate predictions and weights
+        validate_predictions(dfs, weights)
+
+        num_models = len(dfs)
+        print(f"\nLoaded {num_models} valid model predictions")
+
+        # Get unique image names and classes
+        all_images = sorted(set(dfs[0]['image_name']))
+        classes = sorted(set(dfs[0]['class']))
+
+        # Process all images at once
+        ensemble_results = process_images(all_images, dfs, classes, config, weights)
+
+        # Create final predictions
+        final_df = create_final_predictions(ensemble_results, config, num_models, classes)
+
+        # Save results to input_dir with ensemble suffix
+        output_path = Path(config.input_dir) / f"weight_ensemble_result.csv"
         final_df.to_csv(output_path, index=False)
-        print(f"\nSuccessfully saved ensemble results to {output_path}")
+        print(f"\nSuccessfully saved weighted ensemble results to {output_path}")
         print(f"Total predictions: {len(final_df)}")
 
         return final_df
