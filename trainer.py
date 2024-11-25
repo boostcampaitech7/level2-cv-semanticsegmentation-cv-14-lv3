@@ -1,5 +1,4 @@
 import os
-import sys
 import time
 import random
 import numpy as np
@@ -14,7 +13,6 @@ from functions import dice_coef
 import matplotlib.pyplot as plt
 from tools.streamlit.visualize import visualize_prediction
 
-
 def convert_seconds_to_hms(seconds):
     """초를 시, 분, 초로 변환하는 함수"""
     hours = seconds // 3600
@@ -22,8 +20,7 @@ def convert_seconds_to_hms(seconds):
     seconds = seconds % 60
     return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
 
-
-def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_interval, save_dir, hook=None):
+def train(model, data_loader, val_loader, criterion, optimizer, scheduler, num_epochs, val_interval, save_dir):
     print('Start training..')
 
     best_dice = 0.
@@ -43,7 +40,7 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
                 images, masks = images.cuda(), masks.cuda()
                 model = model.cuda()
 
-                outputs = model(images)['out']
+                outputs = model(images)
                 # outputs = model(images)
                 loss = criterion(outputs, masks)
 
@@ -85,21 +82,17 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
             "epoch": epoch + 1
         }
 
-        # Optional hook call after training epoch
-        if hook is not None:
-            class DummyRunner:
-                def __init__(self, model, log_buffer):
-                    self.model = model
-                    self.log_buffer = log_buffer
-
-            log_buffer = {'val_dice': best_dice}
-            runner = DummyRunner(model, log_buffer)
-            hook.after_train_epoch(runner)
-
         # Validation 수행
         if (epoch + 1) % val_interval == 0:
             dice, val_loss, class_val_losses, worst_samples, dices_per_class = validation(
                 epoch + 1, model, val_loader, criterion)
+
+            # scheduler
+            scheduler.step()
+
+            # Learning rate 로깅 추가
+            current_lr = optimizer.param_groups[0]['lr']
+            metrics["learning_rate"] = current_lr
 
             # Wandb 로깅 - validation metrics
             metrics.update({
@@ -127,7 +120,7 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
                     os.remove(best_model_path)
 
                 best_model_path = os.path.join(save_dir, f"best_dice_{best_dice:.4f}.pt")
-                torch.save(model.state_dict(), best_model_path)
+                save_model(model, best_model_path)
 
                 wandb.run.summary.update({
                     "best_dice": best_dice,
@@ -142,9 +135,6 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
     total_str = convert_seconds_to_hms(total_time)
     print(f'Total training completed in {total_str}.')
 
-    return best_dice
-
-
 def validation(epoch, model, data_loader, criterion, thr=0.5, num_worst_samples=4):
     print(f'Start validation #{epoch:2d}')
     model.eval()
@@ -157,7 +147,7 @@ def validation(epoch, model, data_loader, criterion, thr=0.5, num_worst_samples=
     with torch.no_grad():
         for step, (images, masks) in tqdm(enumerate(data_loader), total=len(data_loader)):
             images, masks = images.cuda(), masks.cuda()
-            outputs = model(images)['out']
+            outputs = model(images)
             # outputs = model(images)
 
             output_h, output_w = outputs.size(-2), outputs.size(-1)
@@ -212,8 +202,10 @@ def validation(epoch, model, data_loader, criterion, thr=0.5, num_worst_samples=
 
     return avg_dice, avg_loss, class_losses.cpu().numpy(), worst_samples, dices_per_class
 
+def save_model(model, model_path):
+    torch.save(model, model_path)
 
-def set_seed(seed=21):
+def set_seed(seed=123): #21
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
