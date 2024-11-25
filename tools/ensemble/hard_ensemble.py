@@ -13,26 +13,26 @@ sys.path.append("/data/ephemeral/home/ng-youn")
 from functions import encode_mask_to_rle, decode_rle_to_mask
 from dataset import CLASSES
 '''
-- Method : Soft Voting ensemble
+- Method : Hoft Voting ensemble
 - 가중치 반영 없이, 5개의 csv file에서 3(=threshold)개의 csv file 이상에서 예측된 값을 결과로 저장합니다.
-- chunk : OOM 문제를 방지하기 위해서 추가한 기능입니다.
+- chunk : Test image를 불러오는 과정에서 OOM 문제를 방지하기 위해서 추가한 기능입니다. bach_size의 역할을 합니다.
 - 이 코드를 실행하기 위해서는 아래와 같은 파일 구조가 필요합니다.
     ng-youn (User name)
     ├─ output : inference.py를 사용해 만들어진 output.csv들이 위치한 폴더입니다.
     │  ├─ 9741.csv
     │  ├─ 9733.csv
-    │  ├─ 9743.csv
+    │  .
+    │  └─ 9744.csv
     ├─ tools
-    │  ├─ ensemble
-    │  │  ├─ 2class_ensemble.py
-    │  │  ├─ soft_ensemble.py
-    │  │  └─ weight_ensemble.py
-    │  └─ streamlit
+    │   └─ ensemble
+    │    ├─ 2class_ensemble.py
+    .    ├─ hard_ensemble.py
+    .    └─ weight_ensemble.py  
     ├─ functions.py
-    ├─ dataset.py
+    └─ dataset.py
 '''
 def parse_args():
-    parser = argparse.ArgumentParser(description='Soft Voting Ensemble')
+    parser = argparse.ArgumentParser(description='Hard Voting Ensemble')
     parser.add_argument('--input_dir', type=str, default='/data/ephemeral/home/ng-youn/output',
                         help='output.csv들이 위치한 폴더의 경로를 입력해주세요.')
     parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
