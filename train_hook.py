@@ -1,28 +1,23 @@
 import os
-import albumentations as A
+import logging
+import heapq
+import wandb
+import numpy as np
 import argparse
+import albumentations as A
+
+# Library about torch
+import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision import models
-import wandb
-from dataset import XRayDataset, CLASSES
-# pip install segmentation-models-pytorch
-import segmentation_models_pytorch as smp
-from trainer_hook import train, set_seed
-import torch
 import torch.nn.functional as F
-from loss import get_loss
-import numpy as np
+from torchvision import models
+import segmentation_models_pytorch as smp
 
-''' [About U-Net3+ Model]
-- Duck-Net, U3+(backbone=ResNet), U3+(backbone=EfficientNet) 중에서 선택해 훈련할 수 있습니다.
-- 아래 주석에서 학습하고 싶은 부분의 주석을 해체하고 훈련시켜 주세요.
-- 주석을 해체하지 않는다면, 모델을 불러올 수 없어 ModuleError가 발생합니다.
-'''
-# from model.duck_net import build_unet3plus, build_ducknet
-# from model.u3_resnet import UNet3Plus, build_unet3plus
-from model.u3_effnet import UNet3Plus, build_unet3plus
+from dataset import XRayDataset, CLASSES
+from loss import get_loss
+from trainer_hook import train, set_seed
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Human Bone Image Segmentation Train')
@@ -53,7 +48,7 @@ def parse_args():
                         choices=['cosine_annealing'],
                         help='스케줄러')
     parser.add_argument('--bce_weight', type=float, default=0.5,
-                        help='BCE loss 가중치 ')
+                        help='BCE loss 가중치')
     parser.add_argument('--num_epochs', type=int, default=100,
                         help='학습 에폭수')
 
@@ -67,82 +62,111 @@ def parse_args():
 
     return parser.parse_args()
 
-class LogBuffer:
-    def __init__(self, output):
-        self.output = output
-
-class DummyRunner:
-    def __init__(self, model, metrics):
-        self.model = model
-        self.log_buffer = LogBuffer(metrics)
-
-@HOOKS.register_module()
-class TopModelSelectionHook(Hook):
-    """Hook to track and select top 2 models based on performance"""
-    def __init__(self, n_top_models=2):
+class SaveTopModelsHook:
+    """Hook to save and track top performing models based on multiple metrics"""
+    def __init__(self, save_dir, n_top_models=2):
+        self.save_dir = save_dir
         self.n_top_models = n_top_models
-        self.top_models = []
-        self.scores = []
+        self.top_models_dice = []  # dice score 기준 상위 모델
+        self.top_models_loss = []  # loss 기준 상위 모델
 
-    def after_train_epoch(self, runner):
-        """Track model performance after each training epoch"""
-        current_metric = runner.log_buffer.output.get('val_dice', 0)
+        # Logger 설정
+        log_path = os.path.join(save_dir, 'train.log')
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_path),
+                logging.StreamHandler()
+            ]
+        )
+        self.logger = logging.getLogger()
 
-        # If we haven't collected enough top models yet
-        if len(self.top_models) < self.n_top_models:
-            self.top_models.append(runner.model.state_dict())
-            self.scores.append(current_metric)
-            self.scores, self.top_models = zip(*sorted(zip(self.scores, self.top_models), reverse=True))
-            self.scores = list(self.scores)
-            self.top_models = list(self.top_models)
+
+    def save_top_model(self, metric_list, dice, epoch, model_state, metric_name='dice', mode='max'):
+        """상위 모델을 저장하고 관리하는 함수"""
+        filename = os.path.join(
+            self.save_dir,
+            f'model_{metric_name}_{dice:.4f}_epoch_{epoch}.pth'
+        )
+
+        if mode == 'max':
+            heapq.heappush(metric_list, (dice, epoch, filename))
+            if len(metric_list) > self.n_top_models:
+                old_model = heapq.heappop(metric_list)
+                if os.path.exists(old_model[2]):
+                    os.remove(old_model[2])
         else:
-            # Replace the worst performing model if current is better
-            if current_metric > min(self.scores):
-                min_score_idx = self.scores.index(min(self.scores))
-                self.top_models[min_score_idx] = runner.model.state_dict()
-                self.scores[min_score_idx] = current_metric
-                self.scores, self.top_models = zip(*sorted(zip(self.scores, self.top_models), reverse=True))
-                self.scores = list(self.scores)
-                self.top_models = list(self.top_models)
+            heapq.heappush(metric_list, (dice, epoch, filename))
+            if len(metric_list) > self.n_top_models:
+                old_model = heapq.heappop(metric_list)
+                if os.path.exists(old_model[2]):
+                    os.remove(old_model[2])
+
+        # 새 모델 저장
+        torch.save(model_state, filename)
+        self.logger.info(f"Saved model with {metric_name}: {dice:.4f} at epoch {epoch}")
 
 
-def train_fold(args, fold, hook=None):
-    """Single fold training function with top model selection"""
+def train_fold(args, fold):
+    """Single fold training function with enhanced model selection"""
     print(f"\nStarting training for fold {fold}/{args.n_splits}")
 
     # Create fold-specific save directory
     fold_save_dir = os.path.join(args.save_dir, f'fold{fold}')
     os.makedirs(fold_save_dir, exist_ok=True)
 
+    # Initialize hook
+    hook = SaveTopModelsHook(fold_save_dir, n_top_models=2)
+
     # Transform settings
-    train_transform = A.Compose([A.Resize(args.image_size, args.image_size),
-                                 A.HorizontalFlip(p=0.5),
-                                 A.GridDistortion(p=0.5),
-                                 A.ElasticTransform(alpha=10.0, sigma=10.0, p=0.5),
-                                 A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.5), # hrnet(x)
-                                 A.Rotate(limit=45, p=0.5)]) # hrnet(x)
-    val_transform = A.Compose([A.Resize(args.image_size, args.image_size)])
+    train_transform = A.Compose([
+        A.Resize(args.image_size, args.image_size),
+        A.HorizontalFlip(p=0.5),
+        A.GridDistortion(p=0.5),
+        A.ElasticTransform(alpha=10.0, sigma=10.0, p=0.5),
+        A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.5),
+        A.Rotate(limit=45, p=0.5)
+    ])
+    val_transform = A.Compose([
+        A.Resize(args.image_size, args.image_size)
+    ])
 
-    # Dataset preparation
-    train_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=True,
-                                transforms=train_transform, n_splits=args.n_splits, fold=fold)
-    valid_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=False,
-                                transforms=train_transform, n_splits=args.n_splits, fold=fold)
+    # Dataset and DataLoader setup
+    train_dataset = XRayDataset(
+        args.image_dir, args.label_dir,
+        is_train=True, transforms=train_transform,
+        n_splits=args.n_splits, fold=fold
+    )
+    valid_dataset = XRayDataset(
+        args.image_dir, args.label_dir,
+        is_train=False, transforms=val_transform,
+        n_splits=args.n_splits, fold=fold
+    )
 
-    # DataLoader setup
-    train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size,
-                              shuffle=True, num_workers=2, drop_last=True)
-    valid_loader = DataLoader(dataset=valid_dataset, batch_size=args.batch_size,
-                              shuffle=False, num_workers=2, drop_last=False)
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=2,
+        drop_last=True
+    )
+    valid_loader = DataLoader(
+        dataset=valid_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=2,
+        drop_last=False
+    )
 
-    # wandb 초기화
+    # wandb initialization
     run = wandb.init(
         project="sweep",
-        name=f"{args.wandb_name}_HOOK_fold{fold}",
+        name=f"{args.wandb_name}_fold{fold}",
         config=args.__dict__
     )
 
-   # 모델 설정
+    # Model setup
     model = smp.UnetPlusPlus(
         encoder_name='tu-hrnet_w64',
         encoder_weights='imagenet',
@@ -150,40 +174,103 @@ def train_fold(args, fold, hook=None):
         classes=29
     ).cuda()
 
-    # Loss function 설정
+    # Loss, optimizer and scheduler setup
     criterion = get_loss('combined', weights={
         'bce': args.bce_weight,
         'dice': 1 - args.bce_weight
     })
 
-    # optimizer 설정
     optimizer = optim.AdamW(
         model.parameters(),
         lr=args.learning_rate,
         weight_decay=args.weight_decay
     )
 
-    # scheduler 설정
     if args.scheduler == 'cosine_annealing':
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=args.num_epochs
         )
 
-    # 학습 시작
-    best_dice = train(
-        model=model,
-        data_loader=train_loader,
-        val_loader=valid_loader,
-        criterion=criterion,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        num_epochs=args.num_epochs,
-        val_interval=args.val_interval,
-        save_dir=fold_save_dir
-    )
-    wandb.finish()
+    # Training
+    for epoch in range(args.num_epochs):
+        model.train()
+        train_loss = 0
+        train_dice = 0
 
-    return best_dice, hook
+        for batch_idx, (images, masks) in enumerate(train_loader):
+            images = images.cuda()
+            masks = masks.cuda()
+
+            optimizer.zero_grad()
+
+            outputs = model(images)
+            loss = criterion(outputs, masks)
+
+            loss.backward()
+            optimizer.step()
+
+            train_loss += loss.item()
+
+        # Validation
+        if (epoch + 1) % args.val_interval == 0:
+            model.eval()
+            val_loss = 0
+            val_dice = 0
+
+            with torch.no_grad():
+                for images, masks in valid_loader:
+                    images = images.cuda()
+                    masks = masks.cuda()
+
+                    outputs = model(images)
+                    loss = criterion(outputs, masks)
+
+                    val_loss += loss.item()
+                    # Calculate dice score here
+                    pred_masks = (outputs > 0.5).float()
+                    dice = (2 * (pred_masks * masks).sum()) / (pred_masks.sum() + masks.sum() + 1e-8)
+                    val_dice += dice.item()
+
+            val_loss /= len(valid_loader)
+            val_dice /= len(valid_loader)
+
+            # Log metrics
+            metrics = {
+                'train_loss': train_loss / len(train_loader),
+                'val_loss': val_loss,
+                'val_dice': val_dice,
+                'epoch': epoch + 1
+            }
+            wandb.log(metrics)
+
+            # Save top models
+            hook.save_top_model(
+                hook.top_models_dice,
+                val_dice,
+                epoch + 1,
+                model.state_dict(),
+                metric_name='dice',
+                mode='max'
+            )
+            hook.save_top_model(
+                hook.top_models_loss,
+                val_loss,
+                epoch + 1,
+                model.state_dict(),
+                metric_name='loss',
+                mode='min'
+            )
+
+            print(f"Epoch [{epoch+1}/{args.num_epochs}] - "
+                  f"Train Loss: {train_loss/len(train_loader):.4f}, "
+                  f"Val Loss: {val_loss:.4f}, "
+                  f"Val Dice: {val_dice:.4f}")
+
+        scheduler.step()
+
+    wandb.finish()
+    return hook.top_models_dice, hook.top_models_loss
+
 
 def main():
     args = parse_args()
@@ -191,37 +278,41 @@ def main():
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
-    # Fix seed
     set_seed()
 
-    # Top model selection hook
-    top_model_hook = TopModelSelectionHook(n_top_models=2)
+    if args.use_cv:
+        cv_scores = []
+        all_top_models = {'dice': [], 'loss': []}
 
-    # Cross Validation
-    cv_scores = []
-
-    if args.use_cv:  # Full fold training
-        print(f"Starting {args.n_splits}-fold cross validation...")
         for fold in range(args.n_splits):
-            best_dice, updated_hook = train_fold(args, fold, hook=top_model_hook)
-            cv_scores.append(best_dice)
-            top_model_hook = updated_hook  # Update the hook with the latest state
+            top_dice_models, top_loss_models = train_fold(args, fold)
+            cv_scores.extend([m[0] for m in top_dice_models])
+            all_top_models['dice'].extend(top_dice_models)
+            all_top_models['loss'].extend(top_loss_models)
 
-        # Cross Validation results
+        # Print final results
         mean_dice = np.mean(cv_scores)
         std_dice = np.std(cv_scores)
-        print("\nCross Validation Results:")
-        print(f"Fold Scores: {cv_scores}")
+        print(f"\nCross Validation Results:")
         print(f"Mean Dice: {mean_dice:.4f} ± {std_dice:.4f}")
 
-        # Save top 2 models
-        for i, (model_state, score) in enumerate(zip(top_model_hook.top_models, top_model_hook.scores)):
-            torch.save(model_state, os.path.join(args.save_dir, f'top_model_{i+1}_dice_{score:.4f}.pth'))
-            print(f"Saved top model {i+1} with Dice score: {score:.4f}")
+        # Save absolute best models
+        for metric in ['dice', 'loss']:
+            sorted_models = sorted(
+                all_top_models[metric],
+                reverse=(metric=='dice')
+            )[:2]  # Save top 2 models
 
-    else:  # Train specific fold
-        print(f"Training fold {args.fold} of {args.n_splits}")
-        train_fold(args, args.fold, hook=top_model_hook)
+            for i, (value, epoch, filename, state_dict) in enumerate(sorted_models):
+                save_path = os.path.join(
+                    args.save_dir,
+                    f'best_{metric}_model_{i+1}.pth'
+                )
+                torch.save(state_dict, save_path)
+                print(f"Saved top {metric} model {i+1} with score: {abs(value):.4f}")
+
+    else:
+        train_fold(args, args.fold)
 
 if __name__ == '__main__':
     main()
