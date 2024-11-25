@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torchvision.models import efficientnet_b0, efficientnet_b5, efficientnet_b6
 from torchvision.models.feature_extraction import create_feature_extractor
 
 
