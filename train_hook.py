@@ -17,7 +17,7 @@ import segmentation_models_pytorch as smp
 
 from dataset import XRayDataset, CLASSES
 from loss import get_loss
-from trainer_hook import train, set_seed
+from trainer_hook import set_seed
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Human Bone Image Segmentation Train')
@@ -63,12 +63,11 @@ def parse_args():
     return parser.parse_args()
 
 class SaveTopModelsHook:
-    """Hook to save and track top performing models based on multiple metrics"""
+    """Hook to save and track top performing models based on dice score"""
     def __init__(self, save_dir, n_top_models=2):
         self.save_dir = save_dir
         self.n_top_models = n_top_models
-        self.top_models_dice = []  # dice score 기준 상위 모델
-        self.top_models_loss = []  # loss 기준 상위 모델
+        self.top_models = []  # dice score 기준 상위 모델을 저장할 리스트
 
         # Logger 설정
         log_path = os.path.join(save_dir, 'train.log')
@@ -82,30 +81,25 @@ class SaveTopModelsHook:
         )
         self.logger = logging.getLogger()
 
-
-    def save_top_model(self, metric_list, dice, epoch, model_state, metric_name='dice', mode='max'):
+    def save_top_model(self, dice, epoch, model_state):
         """상위 모델을 저장하고 관리하는 함수"""
         filename = os.path.join(
             self.save_dir,
-            f'model_{metric_name}_{dice:.4f}_epoch_{epoch}.pth'
+            f'model_dice_{dice:.4f}_epoch_{epoch}.pth'
         )
 
-        if mode == 'max':
-            heapq.heappush(metric_list, (dice, epoch, filename))
-            if len(metric_list) > self.n_top_models:
-                old_model = heapq.heappop(metric_list)
-                if os.path.exists(old_model[2]):
-                    os.remove(old_model[2])
-        else:
-            heapq.heappush(metric_list, (dice, epoch, filename))
-            if len(metric_list) > self.n_top_models:
-                old_model = heapq.heappop(metric_list)
-                if os.path.exists(old_model[2]):
-                    os.remove(old_model[2])
+        # dice score가 높은 순으로 저장 (음수로 변환하여 최소 힙을 최대 힙처럼 사용)
+        heapq.heappush(self.top_models, (-dice, epoch, filename, model_state))
+
+        # 지정된 개수 이상의 모델이 저장되면 가장 낮은 성능의 모델 삭제
+        if len(self.top_models) > self.n_top_models:
+            _, _, old_filename, _ = heapq.heappop(self.top_models)
+            if os.path.exists(old_filename):
+                os.remove(old_filename)
 
         # 새 모델 저장
         torch.save(model_state, filename)
-        self.logger.info(f"Saved model with {metric_name}: {dice:.4f} at epoch {epoch}")
+        self.logger.info(f"Saved model with dice score: {dice:.4f} at epoch {epoch}")
 
 
 def train_fold(args, fold):
@@ -226,7 +220,7 @@ def train_fold(args, fold):
                     loss = criterion(outputs, masks)
 
                     val_loss += loss.item()
-                    # Calculate dice score here
+                    # Calculate dice score
                     pred_masks = (outputs > 0.5).float()
                     dice = (2 * (pred_masks * masks).sum()) / (pred_masks.sum() + masks.sum() + 1e-8)
                     val_dice += dice.item()
@@ -243,22 +237,11 @@ def train_fold(args, fold):
             }
             wandb.log(metrics)
 
-            # Save top models
+            # Save top models based on dice score
             hook.save_top_model(
-                hook.top_models_dice,
                 val_dice,
                 epoch + 1,
-                model.state_dict(),
-                metric_name='dice',
-                mode='max'
-            )
-            hook.save_top_model(
-                hook.top_models_loss,
-                val_loss,
-                epoch + 1,
-                model.state_dict(),
-                metric_name='loss',
-                mode='min'
+                model.state_dict()
             )
 
             print(f"Epoch [{epoch+1}/{args.num_epochs}] - "
@@ -269,7 +252,7 @@ def train_fold(args, fold):
         scheduler.step()
 
     wandb.finish()
-    return hook.top_models_dice, hook.top_models_loss
+    return hook.top_models
 
 
 def main():
@@ -282,13 +265,12 @@ def main():
 
     if args.use_cv:
         cv_scores = []
-        all_top_models = {'dice': [], 'loss': []}
+        all_top_models = []
 
         for fold in range(args.n_splits):
-            top_dice_models, top_loss_models = train_fold(args, fold)
-            cv_scores.extend([m[0] for m in top_dice_models])
-            all_top_models['dice'].extend(top_dice_models)
-            all_top_models['loss'].extend(top_loss_models)
+            top_models = train_fold(args, fold)
+            cv_scores.extend([-m[0] for m in top_models])  # 음수를 다시 양수로 변환
+            all_top_models.extend(top_models)
 
         # Print final results
         mean_dice = np.mean(cv_scores)
@@ -297,19 +279,15 @@ def main():
         print(f"Mean Dice: {mean_dice:.4f} ± {std_dice:.4f}")
 
         # Save absolute best models
-        for metric in ['dice', 'loss']:
-            sorted_models = sorted(
-                all_top_models[metric],
-                reverse=(metric=='dice')
-            )[:2]  # Save top 2 models
+        sorted_models = sorted(all_top_models)[:2]  # 상위 2개 모델
 
-            for i, (value, epoch, filename, state_dict) in enumerate(sorted_models):
-                save_path = os.path.join(
-                    args.save_dir,
-                    f'best_{metric}_model_{i+1}.pth'
-                )
-                torch.save(state_dict, save_path)
-                print(f"Saved top {metric} model {i+1} with score: {abs(value):.4f}")
+        for i, (neg_dice, epoch, filename, state_dict) in enumerate(sorted_models):
+            save_path = os.path.join(
+                args.save_dir,
+                f'best_dice_model_{i+1}.pth'
+            )
+            torch.save(state_dict, save_path)
+            print(f"Saved top dice model {i+1} with score: {-neg_dice:.4f}")
 
     else:
         train_fold(args, args.fold)
