@@ -91,13 +91,11 @@ def train_fold(args, fold):
     # 데이터셋 준비
     train_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=True, 
                                 transforms=train_transform, n_splits=args.n_splits, fold=fold)
-    
     valid_dataset = XRayDataset(args.image_dir, args.label_dir, is_train=False, 
                                 transforms=val_transform, n_splits=args.n_splits, fold=fold)
     
     # 데이터로더 설정
     train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True)
-    
     valid_loader = DataLoader(dataset=valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, drop_last=False)
 
     # wandb 초기화 
