@@ -101,6 +101,13 @@ def train(model, data_loader, val_loader, criterion, optimizer, num_epochs, val_
             dice, val_loss, class_val_losses, worst_samples, dices_per_class = validation(
                 epoch + 1, model, val_loader, criterion)
 
+            # scheduler
+            scheduler.step()
+
+            # Learning rate 로깅 추가
+            current_lr = optimizer.param_groups[0]['lr']
+            metrics["learning_rate"] = current_lr
+
             # Wandb 로깅 - validation metrics
             metrics.update({
                 "total/val_loss": val_loss, # 총 validation loss
@@ -213,7 +220,7 @@ def validation(epoch, model, data_loader, criterion, thr=0.5, num_worst_samples=
     return avg_dice, avg_loss, class_losses.cpu().numpy(), worst_samples, dices_per_class
 
 
-def set_seed(seed=21):
+def set_seed(seed=123):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
