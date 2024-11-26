@@ -3,30 +3,26 @@ import pandas as pd
 from tqdm import tqdm
 import albumentations as A
 import argparse
-import numpy as np
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from functions import encode_mask_to_rle
 from dataset import IND2CLASS, XRayInferenceDataset
-from inference import load_model
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Human Bone Image Segmentation Inference')
 
     parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
                         help='테스트 이미지가 있는 디렉토리 경로')
-    parser.add_argument('--model_path', type=str, default='./checkpoints/fcn_resnet50_best_dice_0.0477.pt',
-                        help='학습된 모델 파일 경로')
-    parser.add_argument('--batch_size', type=int, default=2,
-                        help='배치 크기')
+    parser.add_argument('--model_path', type=str, required=True,
+                        help='Checkpoint 경로')
+    parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--threshold', type=float, default=0.5,
                         help='세그멘테이션 임계값')
-    parser.add_argument('--output_path', type=str, default='output.csv',
+    parser.add_argument('--output_path', type=str, default='tta_output.csv',
                         help='결과 저장할 CSV 파일 경로')
-    parser.add_argument('--img_size', type=int, default=512,
-                        help='입력 이미지 크기')
+    parser.add_argument('--img_size', type=int, default=512)
 
     return parser.parse_args()
 
@@ -44,18 +40,14 @@ def create_transforms(img_size):
 def create_tta_transforms(img_size):
     """ TTA를 위한 transform 리스트 생성 """
     tta_transforms = [
-        # Original
-        A.Compose([
-            A.Resize(img_size, img_size),
-            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]),
-        # Horizontal Flip
-        A.Compose([
-            A.Resize(img_size, img_size),
-            A.HorizontalFlip(p=1.0),
-            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]),
-    ]
+        A.Compose([A.Resize(img_size, img_size),
+                   A.HorizontalFlip(p=0.5),
+                   A.GridDistortion(p=0.5),
+                   A.ElasticTransform(alpha=10.0, sigma=10.0, p=0.5),
+                   A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.5), # hrnet(x)
+                   A.Rotate(limit=45, p=0.5)]) # hrnet(x)
+        ]
+
     return tta_transforms
 
 def inverse_transform(outputs, tta_idx):
@@ -114,7 +106,7 @@ def main():
     args = parse_args()
 
     # Load model
-    model = load_model(args.model_path, 29)
+    model = torch.load(args.model_path)['model']
 
     # Augmentation을 포함한 transform 생성
     train_transform = create_transforms(args.img_size)
