@@ -27,11 +27,14 @@ def parse_args():
                         help='결과 저장할 CSV 파일 경로')
     parser.add_argument('--img_size', type=int, default=1024,
                         help='입력 이미지 크기')
-
+    parser.add_argument('--x_offset', type=int, default=50,
+                        help='추출할 이미지의 offset 크기')
+    parser.add_argument('--y_offset', type=int, default=40,
+                        help='추출할 이미지의 offset 크기')
     return parser.parse_args()
 
 
-def roi_extraction(model, data_loader, thr=0.5, input_path = ''):
+def roi_extraction(model, data_loader, thr=0.5, input_path = '', x_off = 50, y_off = 40):
     model = model.cuda()
     model.eval()
 
@@ -65,33 +68,32 @@ def roi_extraction(model, data_loader, thr=0.5, input_path = ''):
                             max_y = ys.max()     
 
                 # Bounding Box 좌표 확장
-                min_x = max(0, min_x - 50)  # 이미지 밖으로 나가지 않도록 0보다 작으면 0으로 설정
-                min_y = max(0, min_y - 40)
-                max_x = max_x + 50
-                max_y = max_y + 40
+                min_x = max(0, min_x - x_off)  # 이미지 밖으로 나가지 않도록 0보다 작으면 0으로 설정
+                min_y = max(0, min_y - y_off)
+                max_x = max_x + x_off
+                max_y = max_y + y_off
 
                 # Bounding Box 부분 그리기
-                image_path = os.path.join(input_path, image_name)
-                image = cv2.imread(image_path)
+                # image_path = os.path.join(input_path, image_name)
+                # image = cv2.imread(image_path)
 
-                color = (0, 255, 0)  # 초록색
-                thickness = 2  # 선 두께
-                cv2.rectangle(image, (min_x, min_y), (max_x, max_y), color, thickness)
+                # color = (0, 255, 0)  # 초록색
+                # thickness = 2  # 선 두께
+                # cv2.rectangle(image, (min_x, min_y), (max_x, max_y), color, thickness)
 
-                # 이미지 이름 추출 및 저장
-                output_dir = '../data_roi/train/DCM'
-                _, img_name = image_name.split("\\")
-                # 이미지가 저장될 output 디렉토리 생성
-                os.makedirs(os.path.join(output_dir, _), exist_ok=True)
+                # # 이미지 이름 추출 및 저장
+                # output_dir = '../data_roi/train/DCM'
+                # _, img_name = image_name.split("\\")
+                # # 이미지가 저장될 output 디렉토리 생성
+                # os.makedirs(os.path.join(output_dir, _), exist_ok=True)
                 
-                output_path = os.path.join(output_dir, image_name)
-                # print(output_path)
-                cv2.imwrite(output_path, image)
+                # output_path = os.path.join(output_dir, image_name)
+                # # print(output_path)
+                # cv2.imwrite(output_path, image)
 
                 bbox_results.append([min_x, min_y, max_x, max_y])
-                filename_and_class.append(f"{IND2CLASS[c]}_{image_name}")
-
-
+                filename_and_class.append(f"{IND2CLASS[c]}__{image_name}")
+                
     return bbox_results, filename_and_class
 
 
@@ -119,10 +121,10 @@ def main():
     os.makedirs('../data_roi/train/DCM', exist_ok=True)
 
     # 추론 수행
-    bbox_results, filename_and_class = roi_extraction(model, test_loader, thr=args.threshold, input_path=args.image_dir)
+    bbox_results, filename_and_class = roi_extraction(model, test_loader, thr=args.threshold, input_path=args.image_dir, x_off=args.x_offset, y_off=args.y_offset)
 
     # submission 파일 생성
-    classes, filename = zip(*[x.split("_") for x in filename_and_class])
+    classes, filename = zip(*[x.split("__") for x in filename_and_class])
     # print(filename)
     image_name = [f for f in filename]
 
