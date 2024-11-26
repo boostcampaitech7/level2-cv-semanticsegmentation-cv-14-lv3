@@ -1,17 +1,14 @@
-import os
+import os, sys
 import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
 import argparse
 
-CLASSES = [
-    'Trapezium', 'Trapezoid', 'Triquetrum', 'Pisiform'
-]
+# Load CLASSSES and PAELLETTE
+sys.path.append("/data/ephemeral/home/ng-youn")
+from dataset import CLASSES, PALETTE
 
-PALETTE = [
-    (120, 166, 157), (110, 76, 0), (0, 125, 92), (209, 0, 151)
-]
 '''
 CLASSES = [
     'Trapezium', 'Trapezoid', 'Triquetrum', 'Pisiform'

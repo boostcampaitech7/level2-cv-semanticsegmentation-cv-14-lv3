@@ -112,7 +112,6 @@ def train_fold(args, fold, use_roi = False, roi_path = 'roi_train.csv'):
     
     # 데이터로더 설정
     train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, drop_last=True)
-    
     valid_loader = DataLoader(dataset=valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, drop_last=False)
 
     # wandb 초기화 
