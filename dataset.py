@@ -273,6 +273,8 @@ class RoiXRayDataset(Dataset):
             x_min, y_min, x_max, y_max = bbox
             image = image[y_min:y_max, x_min:x_max]
             label = label[y_min:y_max, x_min:x_max, :]
+        else:
+            print(f"None image_name : {image_name}")
             
         if self.transforms is not None:
             transformed = self.transforms(image=image, mask=label)
@@ -335,6 +337,8 @@ class RoiXRayInferenceDataset(Dataset):
             bbox = self.bbox_data[image_name]  # CSV에서 가져온 bbox
             x_min, y_min, x_max, y_max = bbox
             image = image[y_min:y_max, x_min:x_max]
+        else:
+            print(f"None image_name : {image_name}")
 
         if self.transforms is not None:
             transformed = self.transforms(image=image)
