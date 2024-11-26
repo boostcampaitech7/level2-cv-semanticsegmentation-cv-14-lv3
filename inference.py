@@ -110,7 +110,7 @@ def test(model, data_loader, thr=0.5):
 
     return rles, filename_and_class
 
-def load_model(model_path, num_classes):
+def load_model(model_path, num_classes=29):
     # 모델 아키텍처 초기화
     model = fcn_resnet50(weights=None)
     model.classifier[4] = torch.nn.Conv2d(512, num_classes, kernel_size=(1, 1), stride=(1, 1))
@@ -161,7 +161,7 @@ def main():
     args = parse_args()
 
     # 모델 로드
-    model = load_model(args.model_path, args.num_classes)
+    model = load_model(args.model_path, 29)
 
     # 데이터셋 및 데이터로더 설정
     tf = A.Compose([
