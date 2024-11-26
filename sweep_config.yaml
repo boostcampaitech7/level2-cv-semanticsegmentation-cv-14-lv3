@@ -21,7 +21,7 @@ parameters:
     values: ['cosine_annealing']
 
   # Loss weight
-  bce_weight:  # BCE loss 가중치
+  bce_weight:  # BCE loss 
     distribution: uniform
     min: 0.4
     max: 0.6 
