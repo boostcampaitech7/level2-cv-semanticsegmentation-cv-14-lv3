@@ -20,10 +20,9 @@ from dataset import CLASSES
 '''
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Improved Human Bone Image Segmentation Ensemble')
-    parser.add_argument('--output_dir', type=str, default='/data/ephemeral/home/ng-youn/output',
-                        help='output.csv들이 위치한 폴더의 이름을 입력해주세요.')
-    parser.add_argument('--output_path', type=str, default='/data/ephemeral/home/ng-youn')
+    parser = argparse.ArgumentParser(description='Hard & Weight Voting Ensemble')
+    parser.add_argument('--input_dir', type=str, default='/data/ephemeral/home/ng-youn/output',
+                        help='output.csv들이 위치한 폴더의 경로를 입력해주세요.')
     parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
                         help='Test image의 경로')
     parser.add_argument('--threshold', type=float, default=0.6)
@@ -32,8 +31,7 @@ def parse_args():
 
 @dataclass
 class EnsembleConfig:
-    output_dir: str
-    output_path: str
+    input_dir: str
     image_dir: str
     threshold: float
     height: int = 2048
@@ -50,25 +48,17 @@ def check_paths(config: EnsembleConfig) -> None:
     if not Path(config.output_path).parent.exists():
         raise FileNotFoundError(f"Output path's parent directory does not exist: {Path(config.output_path).parent}")
 
+
 def calculate_weights_from_filenames(csv_files: List[Path]) -> List[float]:
-    """
-    Calculate weights based on the scores in filenames.
-    Higher scores get higher weights.
-    """
-    # Extract scores from filenames
+    # 점수를 제곱하여 더 큰 차이를 만듭니다
     scores = [float(f.stem) for f in csv_files]
+    scores = np.array(scores) ** 2  # 제곱하여 큰 점수에 더 큰 가중치 부여
 
-    # Convert to numpy array for easier manipulation
-    scores = np.array(scores)
-
-    # Normalize scores to create weights that sum to 1
+    # 합계로 정규화
     weights = scores / scores.sum()
 
-    # Print weight information for verification
-    for file, weight in zip(csv_files, weights):
-        print(f"File: {file.name}, Weight: {weight:.4f}")
-
     return weights.tolist()
+
 
 def validate_predictions(dfs: List[pd.DataFrame], weights: List[float]) -> None:
     """Validate consistency across prediction files and weights."""
@@ -90,6 +80,7 @@ def validate_predictions(dfs: List[pd.DataFrame], weights: List[float]) -> None:
         if not set(df['class']).issubset(set(base_df['class'])):
             raise ValueError(f"Prediction file {idx} has mismatched classes")
 
+
 def load_csv_files(output_dir: str) -> Tuple[List[pd.DataFrame], List[float]]:
     """Load CSV files and calculate weights based on filenames."""
     csv_files = sorted(Path(output_dir).glob("*.csv"))
@@ -110,6 +101,7 @@ def load_csv_files(output_dir: str) -> Tuple[List[pd.DataFrame], List[float]]:
             raise ValueError(f"Error loading {file_path}: {e}")
 
     return outputs, weights
+
 
 def process_images(
     image_names: List[str],
@@ -140,20 +132,21 @@ def process_images(
 
     return ensemble
 
+
 def create_final_predictions(
     ensemble: Dict,
     config: EnsembleConfig,
-    num_models: int,
-    classes: List[str]
+    classes: List[str],
+    weights: List[float]
 ) -> pd.DataFrame:
-    """Create final predictions with weighted thresholding."""
     predictions = []
 
     for img_name, class_preds in tqdm(ensemble.items(), desc="Weight voting ensemble in progress..."):
-
         for bone in classes:
-            # For weighted ensemble, we already have weighted sum
-            binary_mask = class_preds[bone] > config.threshold
+            # 가중치 평균을 기반으로 동적 threshold 계산
+            dynamic_threshold = config.threshold * np.mean(weights)
+
+            binary_mask = class_preds[bone] > dynamic_threshold
 
             rle = encode_mask_to_rle(binary_mask.astype(np.uint8))
             predictions.append({
@@ -163,6 +156,7 @@ def create_final_predictions(
             })
 
     return pd.DataFrame(predictions)
+
 
 def main():
     args = parse_args()
@@ -175,7 +169,7 @@ def main():
         check_paths(config)
 
         # Load predictions and calculate weights
-        dfs, weights = load_csv_files(config.output_dir)
+        dfs, weights = load_csv_files(config.input_dir)
 
         # Validate predictions and weights
         validate_predictions(dfs, weights)
@@ -194,9 +188,9 @@ def main():
         final_df = create_final_predictions(ensemble_results, config, num_models, classes)
 
         # Save results
-        output_path = Path(config.output_dir) / config.output_path
-        final_df.to_csv(output_path, index=False)
-        print(f"\nSuccessfully saved weighted ensemble results to {output_path}")
+
+        final_df.to_csv(config.input_dir, index=False)
+        print(f"\nSuccessfully saved weighted ensemble results to {config.input_dir}")
         print(f"Total predictions: {len(final_df)}")
 
         return final_df
