@@ -1,212 +1,161 @@
-import os, sys
-import numpy as np
+import os, cv2, json, random, sys
 import pandas as pd
-import copy
-import argparse
+import numpy as np
 from tqdm import tqdm
-from typing import List, Dict, Set, Tuple
-import warnings
-from dataclasses import dataclass
-from pathlib import Path
+import re
 
 sys.path.append("/data/ephemeral/home/ng-youn")
 from functions import encode_mask_to_rle, decode_rle_to_mask
-from dataset import CLASSES
 
-'''
-- Method : Weight Voting ensemble
-- 이 코드를 실행하기 위해서는, 파일 이름이 아래와 같은 형식으로 저장되어야 합니다.
-- 9743.csv, 9738.csv, 9745.csv, ... (가중치의 역할을 합니다.)
-    ng-youn (User name)
-    ├─ output : 9743.csv, 9738.csv, 9745.csv, ...
-    ├─ tools
-    │  ├─ ensemble
-    │  │  ├─ 2class_ensemble.py
-    │  │  ├─ soft_ensemble.py
-    │  │  └─ weight_ensemble.py  # This is where the main script resides
-    │  └─ streamlit
-    ├─ functions.py               # Required for encode_mask_to_rle and decode_rle_to_mask
-    ├─ dataset.py
-'''
+def rle_to_mask(rle, height, width):
+    s = np.array(rle.split(), dtype=int)
+    starts, lengths = s[0::2] - 1, s[1::2]
+    ends = starts + lengths
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Weight Voting Ensemble')
-    parser.add_argument('--input_dir', type=str, default='/data/ephemeral/home/ng-youn/output',
-                        help='output.csv들이 위치한 폴더의 이름을 입력해주세요.')
-    parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
-                        help='Test image의 경로')
-    parser.add_argument('--threshold', type=float, default=0.6)
-    return parser.parse_args()
+    mask = np.zeros(height * width, dtype=np.int32)
+    mask[starts] += 1
+    mask[ends] -= 1
 
-@dataclass
-class EnsembleConfig:
-    input_dir: str
-    image_dir: str
-    threshold: float
-    height: int = 2048
-    width: int = 2048
+    mask = np.cumsum(mask)
+    return mask.reshape(height, width).astype(np.uint8)
 
-def check_paths(config: EnsembleConfig) -> None:
-    """Check if the provided paths are valid."""
-    if not Path(config.input_dir).exists():
-        raise FileNotFoundError(f"Input directory does not exist: {config.input_dir}")
-
-    if not Path(config.image_dir).exists():
-        raise FileNotFoundError(f"Image directory does not exist: {config.image_dir}")
-
-def calculate_weights_from_filenames(csv_files: List[Path]) -> List[float]:
-    """
-    Calculate weights based on the scores in filenames.
-    Higher scores get higher weights.
-    """
-    # Extract scores from filenames
-    scores = [float(f.stem) for f in csv_files]
-
-    # Convert to numpy array for easier manipulation
-    scores = np.array(scores)
-
-    # Normalize scores to create weights that sum to 1
-    weights = scores / scores.sum()
-
-    # Print weight information for verification
-    for file, weight in zip(csv_files, weights):
-        print(f"File: {file.name}, Weight: {weight:.4f}")
-
-    return weights.tolist()
-
-def validate_predictions(dfs: List[pd.DataFrame], weights: List[float]) -> None:
-    """Validate consistency across prediction files and weights."""
-    if not dfs:
-        raise ValueError("No prediction files provided")
-
-    if len(dfs) != len(weights):
-        raise ValueError(f"Number of models ({len(dfs)}) does not match number of weights ({len(weights)})")
-
-    base_df = dfs[0]
-    required_columns = {'image_name', 'class', 'rle'}
-
-    for idx, df in enumerate(dfs, 1):
-        if not set(df.columns).issuperset(required_columns):
-            raise ValueError(f"Prediction file {idx} missing required columns: {required_columns}")
-
-        if not set(df['image_name']).issubset(set(base_df['image_name'])):
-            raise ValueError(f"Prediction file {idx} has mismatched image names")
-        if not set(df['class']).issubset(set(base_df['class'])):
-            raise ValueError(f"Prediction file {idx} has mismatched classes")
-
-def load_csv_files(input_dir: str) -> Tuple[List[pd.DataFrame], List[float]]:
-    """Load CSV files and calculate weights based on filenames."""
-    csv_files = sorted(Path(input_dir).glob("*.csv"))
-
-    if not csv_files:
-        raise FileNotFoundError(f"No CSV files found in {input_dir}")
-
-    # Calculate weights based on filenames
-    weights = calculate_weights_from_filenames(csv_files)
-
-    # Load DataFrame
-    outputs = []
-    for file_path in tqdm(csv_files, desc="Loading CSV files"):
-        try:
-            df = pd.read_csv(file_path)
-            outputs.append(df)
-        except Exception as e:
-            raise ValueError(f"Error loading {file_path}: {e}")
-
-    return outputs, weights
-
-def process_images(
-    image_names: List[str],
-    dfs: List[pd.DataFrame],
-    classes: List[str],
-    config: EnsembleConfig,
-    weights: List[float]
-) -> Dict:
-    """Process all images with weighted voting."""
-    ensemble = {
-        img: {bone: np.zeros((config.height, config.width), dtype=np.float32)
-              for bone in classes}
-        for img in image_names
-    }
-
-    for df, weight in zip(dfs, weights):
-        for _, row in df.iterrows():
-            if pd.isna(row['rle']):
-                warnings.warn(f"Missing RLE for {row['image_name']}, class {row['class']}")
-                continue
-
-            try:
-                mask = decode_rle_to_mask(row['rle'], config.height, config.width)
-                ensemble[row['image_name']][row['class']] += mask.astype(np.float32) * weight
-
-            except Exception as e:
-                warnings.warn(f"Error processing {row['image_name']}, class {row['class']}: {e}")
-
-    return ensemble
-
-def create_final_predictions(
-    ensemble: Dict,
-    config: EnsembleConfig,
-    num_models: int,
-    classes: List[str]
-) -> pd.DataFrame:
-    """Create final predictions with weighted thresholding."""
-    predictions = []
-
-    for img_name, class_preds in tqdm(ensemble.items(), desc="Weight voting ensemble in progress..."):
-        for bone in classes:
-            # For weighted ensemble, we already have weighted sum
-            binary_mask = class_preds[bone] > config.threshold
-
-            rle = encode_mask_to_rle(binary_mask.astype(np.uint8))
-            predictions.append({
-                "image_name": img_name,
-                "class": bone,
-                "rle": rle
-            })
-
-    return pd.DataFrame(predictions)
+def mask_to_rle(mask):
+    pixels = mask.flatten()
+    pixels = np.concatenate([[0], pixels, [0]])
+    runs = np.where(pixels[1:] != pixels[:-1])[0] + 1
+    runs[1::2] -= runs[::2]
+    return ' '.join(str(x) for x in runs)
 
 def main():
-    args = parse_args()
-    config = EnsembleConfig(**vars(args))
+    csv_files = [
+        '/data/ephemeral/home/ng-youn/output/HARD_6+SOFT fusion.csv',
+        '/data/ephemeral/home/ng-youn/output/MaxViT+HVT(2stage_fusion)+5Aug_HR5Fold.csv',
+        '/data/ephemeral/home/ng-youn/output/maxvit5+hvt+augHRNet+Fusion.csv',
+        '/data/ephemeral/home/ng-youn/output/HARD_6 + FUSION.csv'
+    ]
 
-    try:
-        print("\n=== Starting Score-based Weighted Ensemble Process ===")
+    while True:
+        num_random_elements = random.randint(1, len(csv_files))
+        rand_csv_files = random.sample(csv_files, num_random_elements)
+        print('='*10)
+        for rand_csv_file in rand_csv_files:
+            print('Using :',rand_csv_file)
+        weights = [1/len(rand_csv_files)]*len(rand_csv_files)
 
-        # Check paths validity
-        check_paths(config)
+        combined_df = [pd.read_csv(f) for f in rand_csv_files]
+        filtered_rows = [df.loc[df['class'].isin(['Trapezoid', 'Pisiform'])] for df in combined_df]
 
-        # Load predictions and calculate weights
-        dfs, weights = load_csv_files(config.input_dir)
+        class_name = [name for name in combined_df[0]['class'].tolist() if name in ['Trapezoid', 'Pisiform']]
 
-        # Validate predictions and weights
-        validate_predictions(dfs, weights)
+        image_class = []
+        rles = []
 
-        num_models = len(dfs)
-        print(f"\nLoaded {num_models} valid model predictions")
+        height, width = 2048, 2048
 
-        # Get unique image names and classes
-        all_images = sorted(set(dfs[0]['image_name']))
-        classes = sorted(set(dfs[0]['class']))
+        for i in tqdm(range(len(class_name))):
+            weighted_masks = []
+            for df, w in zip(filtered_rows, weights):
+                if type(df.iloc[i]['rle']) == float:
+                    weighted_masks.append(np.zeros((height, width)))
+                    continue
+                weighted_masks.append(rle_to_mask(df.iloc[i]['rle'], height, width) * w)
 
-        # Process all images at once
-        ensemble_results = process_images(all_images, dfs, classes, config, weights)
+            combined_mask = sum(weighted_masks)
 
-        # Create final predictions
-        final_df = create_final_predictions(ensemble_results, config, num_models, classes)
+            combined_mask[combined_mask <= 0.5] = 0
+            combined_mask[combined_mask > 0.5] = 1
+            combined_mask = combined_mask.astype(np.uint8)
 
-        # Save results to input_dir with ensemble suffix
-        output_path = Path(config.input_dir) / f"weight_ensemble_result.csv"
-        final_df.to_csv(output_path, index=False)
-        print(f"\nSuccessfully saved weighted ensemble results to {output_path}")
-        print(f"Total predictions: {len(final_df)}")
+            image = np.zeros((height, width), dtype=np.uint8)
+            image += combined_mask
 
-        return final_df
+            rles.append(mask_to_rle(image))
+            image_class.append(f"{filtered_rows[0].iloc[i]['image_name']}_{filtered_rows[0].iloc[i]['class']}")
 
-    except Exception as e:
-        print(f"\nCritical error in ensemble process: {e}")
-        raise
+        filename, classes = zip(*[x.split("_") for x in image_class])
+        image_name = [os.path.basename(f) for f in filename]
+
+        submission = pd.DataFrame({
+                        "image_name": image_name,
+                        "class": classes,
+                        "rle": rles,
+                    })
+
+        save_dir = '/data/ephemeral/home/ng-youn/output'
+        submission.to_csv(os.path.join(save_dir, 'class_ens_th_5.csv'), index=False)
+
+        class_names = ['Trapezoid', 'Pisiform']
+        CLASS2IND = {v: i for i, v in enumerate(class_names)}
+
+        eps = 0.0001
+        label_root = '/data/ephemeral/home/datasets/train/outputs_json'
+        csv_path = '/data/ephemeral/home/ng-youn/sub.csv'
+        df = pd.read_csv(csv_path)
+        df = submission
+        image_names = df['image_name'].unique()
+
+        dices = []
+
+        ##### 구분선 #####
+
+        for image_name in tqdm(image_names, total=len(image_names)):
+            match = re.search(r'image(\d+)', image_name)
+            if not match:
+                print(f"Warning: No numeric ID found in image name {image_name}")
+                continue
+
+            id_folder = match.group(1)
+            json_name = image_name.replace('-', '_').replace('.png', '.json')
+            label_path = os.path.join(label_root, id_folder, json_name)
+
+            if not os.path.exists(label_path):
+                print(f"Warning: JSON file not found for image {image_name}")
+                print(f"Attempted path: {label_path}")
+                continue
+
+            gt_masks = np.zeros((29, 2048, 2048), dtype=np.uint8)
+            with open(label_path, "r") as f:
+                annotations = json.load(f)
+            annotations = annotations["annotations"]
+            for ann in annotations:
+                c = ann["label"]
+                if c not in class_names: continue
+                class_ind = CLASS2IND[c]
+                points = np.array(ann["points"])
+
+                class_label = np.zeros((2048, 2048), dtype=np.uint8)
+                cv2.fillPoly(class_label, [points], 1)
+                gt_masks[class_ind] = class_label
+            gt_masks = gt_masks.reshape(29, -1)
+
+            val_masks = np.zeros((29, 2048, 2048), dtype=np.uint8)
+            for idx, class_name in enumerate(class_names):
+                rle = df[(df['image_name'] == image_name) & (df['class']== class_name)].iloc[0]['rle']
+                if pd.isna(rle):
+                    print('nan :', image_name, class_name)
+                    val_masks[idx] = np.zeros((2048, 2048), dtype=np.uint8)
+                else:
+                    val_masks[idx] = decode_rle_to_mask(rle, 2048, 2048)
+            val_masks = val_masks.reshape(29, -1)
+
+            intersection = np.sum(gt_masks * val_masks, -1)
+            dice_score = (2. * intersection + eps) / (np.sum(gt_masks, -1) + np.sum(val_masks, -1) + eps)
+            dices.append(dice_score)
+
+        if len(dices) == 0:
+            print("Warning: No valid dice scores calculated. Check input data.")
+            dices_per_class = np.zeros(len(class_names))
+        else:
+            dices_per_class = np.mean(dices, axis=0)
+
+        dice_str = []
+        for c, d in zip(class_names, dices_per_class):
+            if c in ["Trapezoid", "Pisiform"]:
+                dice_str.append(f"{c}: {d:.4f}")
+
+        dice_str = ", ".join(dice_str)
+        avg_dice = np.mean(dices_per_class)
+        print(dice_str)
 
 if __name__ == '__main__':
     main()
