@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import cv2
 from tqdm import tqdm
 import albumentations as A
 import argparse
@@ -10,6 +11,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 from torchvision.models.segmentation import fcn_resnet50
 from functions import encode_mask_to_rle
+from ultralytics import YOLO
 from dataset import IND2CLASS, XRayInferenceDataset, RoiXRayInferenceDataset
 
 def parse_args():
@@ -21,11 +23,11 @@ def parse_args():
                         help='학습된 모델 파일 경로')
     parser.add_argument('--batch_size', type=int, default=2,
                         help='배치 크기')
-    parser.add_argument('--threshold', type=float, default=0.5,
+    parser.add_argument('--threshold', type=float, default=0.4,
                         help='세그멘테이션 임계값')
     parser.add_argument('--output_path', type=str, default='output.csv',
                         help='결과 저장할 CSV 파일 경로')
-    parser.add_argument('--img_size', type=int, default=512,
+    parser.add_argument('--img_size', type=int, default=1024,
                         help='입력 이미지 크기')
     parser.add_argument('--num_classes', type=int, default=len(IND2CLASS),
                         help='클래스 개수')
@@ -35,7 +37,9 @@ def parse_args():
                         help='ROI영역 추론 진행 여부')
     parser.add_argument('--roi_csv_path', type=str, default='roi_test.csv',
                         help='추론할 데이터셋의 bbox정보가 담긴 roi.csv 파일 경로')
-
+    # YOLO 추론
+    parser.add_argument('--use_yolo', action='store_true',
+                        help='YOLO 모델 사용 여부')
 
     return parser.parse_args()
 
@@ -86,6 +90,45 @@ def test_roi(model, data_loader, csv_file, thr=0.5):
                     filename_and_class.append(f"{IND2CLASS[c]}_{image_name}")
 
     return rles, filename_and_class
+
+def test_yolo(model, data_loader, thr=0.4):
+    model.to('cuda')
+    
+    rles = []
+    filename_and_class = []
+    
+    for images, image_names in tqdm(data_loader):
+        results = model.predict(source=images, device='cuda')
+        
+        for result, image_name in zip(results, image_names):
+            masks = result.masks  # 예측된 마스크 정보
+            boxes = result.boxes # 예측된 바운딩 박스 정보
+            
+            if masks is None or boxes is None:
+                for class_id in range(len(IND2CLASS)):
+                    rles.append('')
+                    filename_and_class.append(f"{IND2CLASS[class_id]}_{image_name}")
+                continue
+            
+            class_masks = np.zeros((len(IND2CLASS), 2048, 2048), dtype=np.uint8)
+            
+            for mask, cls in zip(masks.data, boxes.cls):
+                mask = cv2.resize(
+                    mask.cpu().numpy(),
+                    (2048, 2048),
+                    interpolation=cv2.INTER_LINEAR
+                )
+                mask = (mask > thr).astype(np.uint8)
+                class_id = int(cls.item())
+                class_masks[class_id] = np.logical_or(class_masks[class_id], mask)
+            
+            for class_id, mask in enumerate(class_masks):
+                rle = encode_mask_to_rle(mask)
+                rles.append(rle)
+                filename_and_class.append(f"{IND2CLASS[class_id]}_{image_name}")
+                    
+    return rles, filename_and_class
+
 def test(model, data_loader, thr=0.5):
     model = model.cuda()
     model.eval()
@@ -160,8 +203,11 @@ def load_model(model_path, num_classes=29):
 def main():
     args = parse_args()
 
-    # 모델 로드
-    model = load_model(args.model_path, 29)
+    # YOLO 모델 사용 시
+    if args.use_yolo:
+        model = YOLO(args.model_path)
+    else:
+        model = load_model(args.model_path, args.num_classes)
 
     # 데이터셋 및 데이터로더 설정
     tf = A.Compose([
@@ -170,26 +216,34 @@ def main():
     
     if args.use_roi:
         test_dataset = RoiXRayInferenceDataset(args.image_dir, args.roi_csv_path, transforms=tf)
-
         test_loader = DataLoader(
-        dataset=test_dataset,
-        batch_size=1,
-        shuffle=False,
-        num_workers=2,
-        drop_last=False
+            dataset=test_dataset,
+            batch_size=1,
+            shuffle=False,
+            num_workers=2,
+            drop_last=False
         )
-
         # 추론 수행
         rles, filename_and_class = test_roi(model, test_loader, args.roi_csv_path, thr=args.threshold)
+    elif args.use_yolo:
+        test_dataset = XRayInferenceDataset(args.image_dir, transforms=tf)
+        test_loader = DataLoader(
+            dataset=test_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=2,
+            drop_last=False
+        )
+        # yolo 추론 수행
+        rles, filename_and_class = test_yolo(model, test_loader, thr=args.threshold)
     else:
         test_dataset = XRayInferenceDataset(args.image_dir, args.roi_csv_path, transforms=tf)
-
         test_loader = DataLoader(
-        dataset=test_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=2,
-        drop_last=False
+            dataset=test_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=2,
+            drop_last=False
         )
         # 추론 수행
         rles, filename_and_class = test(model, test_loader, thr=args.threshold)
