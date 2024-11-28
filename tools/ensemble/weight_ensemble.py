@@ -17,6 +17,7 @@ from dataset import CLASSES
 - Method : Weight Voting ensemble
 - 이 방법을 사용하기 위해서는, 파일 이름이 아래와 같은 형식으로 저장되어야 합니다.
 - 9743.csv, 9738.csv, 9745.csv, ... (가중치의 역할을 합니다.)
+- (!) 이름 순으로 가장 마지막에 입력받는 파일의 가중치가 2 입니다. (weights = [1, 1, 1, 2])
 '''
 
 def parse_args():
@@ -89,7 +90,8 @@ def load_csv_files(output_dir: str) -> Tuple[List[pd.DataFrame], List[float]]:
         raise FileNotFoundError(f"No CSV files found in {output_dir}")
 
     # Calculate weights based on filenames
-    weights = calculate_weights_from_filenames(csv_files)
+#    weights = calculate_weights_from_filenames(csv_files)
+    weights = [1, 1, 1, 2]
 
     # Load DataFrame
     outputs = []
