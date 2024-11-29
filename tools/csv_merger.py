@@ -11,8 +11,8 @@ CLASSES = [
 ]
 
 # Read the CSV files
-file_a = pd.read_csv('/data/ephemeral/home/ng-youn/output/class_ens_th_6.csv')  # Replace with your first file path
-file_b = pd.read_csv('/data/ephemeral/home/ng-youn/output/maxvit5+hvt+augHRNet+Fusion.csv')  # Replace with your second file path
+file_a = pd.read_csv('/data/output/output1.csv')  # Replace with your first file path
+file_b = pd.read_csv('/data/output/output2.csv')  # Replace with your second file path
 
 # Select rows from A.csv where class is "Trapezoid" or "Pisiform"
 condition_a = file_a[file_a['class'].isin(['Trapezoid', 'Pisiform'])]

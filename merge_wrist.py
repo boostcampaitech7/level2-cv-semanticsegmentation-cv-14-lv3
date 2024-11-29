@@ -3,8 +3,8 @@ import numpy as np
 from tqdm import tqdm
 
 # Load the two CSV files
-df1 = pd.read_csv('./output/top.csv')
-df2 = pd.read_csv('output_9746.csv')
+df1 = pd.read_csv('./output1.csv')
+df2 = pd.read_csv('./output2.csv')
 
 # 상수 정의
 CLASSES = [

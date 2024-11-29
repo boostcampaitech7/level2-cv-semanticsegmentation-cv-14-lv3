@@ -30,9 +30,9 @@ from trainer import train, set_seed
 def parse_args():
     parser = argparse.ArgumentParser(description='Human Bone Image Segmentation Train')
 
-    parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/train/DCM',
+    parser.add_argument('--image_dir', type=str, default='./data/train/DCM',
                         help='Train image가 있는 디렉토리 경로')
-    parser.add_argument('--label_dir', type=str, default='/data/ephemeral/home/data/train/outputs_json',
+    parser.add_argument('--label_dir', type=str, default='./data/train/outputs_json',
                         help='Train label json 파일이 있는 디렉토리 경로')
     parser.add_argument('--image_size', type=int, default=1024,
                         help='이미지 Resize')

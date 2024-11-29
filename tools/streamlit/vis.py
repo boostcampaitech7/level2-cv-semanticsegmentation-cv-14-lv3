@@ -6,9 +6,9 @@ import streamlit as st
 import pandas as pd
 
 # 데이터 경로 설정
-data_dir = '/Users/zangzoo/vscode/boostcamp_project/4_boostcamp_seg/data/train/DCM/'
-meta_data_path = '/Users/zangzoo/vscode/boostcamp_project/4_boostcamp_seg/data/meta_data.xlsx'  # meta_data 파일 경로
-outputs_json_dir = '/Users/zangzoo/vscode/boostcamp_project/4_boostcamp_seg/data/train/outputs_json/'
+data_dir = '/data/train/DCM/'
+meta_data_path = '/data/meta_data.xlsx'  # meta_data 파일 경로
+outputs_json_dir = '/data/train/outputs_json/'
 
 # 사람별로 왼손, 오른손 이미지 불러오기
 def load_images_by_id(data_dir):

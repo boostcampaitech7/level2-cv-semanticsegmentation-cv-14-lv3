@@ -6,7 +6,6 @@ import numpy as np
 from tqdm import tqdm
 import glob
 
-sys.path.append("/home/ng-youn/Desktop/Git/Lv.2-SemanticSegmentation-CV14")
 from functions import encode_mask_to_rle
 from dataset import CLASSES
 

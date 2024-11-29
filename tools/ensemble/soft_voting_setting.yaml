@@ -19,8 +19,8 @@ threshold: 0.5
 model_paths:
   512: []
   1024: 
-    - /data/ephemeral/home/ohs/level2-cv-semanticsegmentation-cv-12-lv3/checkpoint/best_model1.pt
-    - /data/ephemeral/home/ohs/level2-cv-semanticsegmentation-cv-12-lv3/checkpoint/best_model1.pt
+    - /data/checkpoint/best_model1.pt
+    - /data/checkpoint/best_model2.pt
   1536: []
   2048: []
 

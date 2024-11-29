@@ -6,7 +6,6 @@ import streamlit as st
 import argparse
 
 # Load CLASSSES and PAELLETTE
-sys.path.append("/data/ephemeral/home/ng-youn")
 from dataset import CLASSES, PALETTE
 
 '''

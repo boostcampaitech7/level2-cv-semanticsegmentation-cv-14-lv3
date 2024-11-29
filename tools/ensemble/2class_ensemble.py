@@ -4,7 +4,6 @@ import numpy as np
 from tqdm import tqdm
 import re
 
-sys.path.append("/data/ephemeral/home/ng-youn")
 from functions import encode_mask_to_rle, decode_rle_to_mask
 
 def rle_to_mask(rle, height, width):
@@ -28,10 +27,10 @@ def mask_to_rle(mask):
 
 def main():
     csv_files = [
-        '/data/ephemeral/home/ng-youn/output/HARD_6+SOFT fusion.csv',
-        '/data/ephemeral/home/ng-youn/output/MaxViT+HVT(2stage_fusion)+5Aug_HR5Fold.csv',
-        '/data/ephemeral/home/ng-youn/output/maxvit5+hvt+augHRNet+Fusion.csv',
-        '/data/ephemeral/home/ng-youn/output/HARD_6 + FUSION.csv'
+        '/data/output/output1.csv',
+        '/data/output/output2.csv',
+        '/data/output/output3.csv',
+        '/data/output/output4.csv'
     ]
 
     while True:
@@ -88,8 +87,8 @@ def main():
         CLASS2IND = {v: i for i, v in enumerate(class_names)}
 
         eps = 0.0001
-        label_root = '/data/ephemeral/home/datasets/train/outputs_json'
-        csv_path = '/data/ephemeral/home/ng-youn/sub.csv'
+        label_root = '/data/train/outputs_json'
+        csv_path = '/data/sub.csv'
         df = pd.read_csv(csv_path)
         df = submission
         image_names = df['image_name'].unique()

@@ -15,9 +15,9 @@ import cv2
 def parse_args():
     parser = argparse.ArgumentParser(description='Human Bone Image Segmentation Inference')
 
-    parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
+    parser.add_argument('--image_dir', type=str, default='./data/test/DCM',
                         help='추출할 이미지가 있는 디렉토리 경로')
-    parser.add_argument('--model_path', type=str, default='./checkpoints/best_dice_0.9729_hr.pt',
+    parser.add_argument('--model_path', type=str, default='./checkpoints/best_model.pt',
                         help='학습된 모델 파일 경로')
     parser.add_argument('--batch_size', type=int, default=1,
                         help='배치 크기는 1로 고정해야함')

@@ -20,7 +20,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=21, help='Random seed (default: 21)')
     parser.add_argument('--model_dir', type=str, required=True, help='Ckpt path')
 
-    parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM')
+    parser.add_argument('--image_dir', type=str, default='/data/test/DCM')
     parser.add_argument('--output_path', type=str, default='inf_output.csv')
     parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--threshold', type=float, default=0.5)

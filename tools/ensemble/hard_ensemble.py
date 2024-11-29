@@ -9,7 +9,6 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
-sys.path.append("/data/ephemeral/home/ng-youn")
 from functions import encode_mask_to_rle, decode_rle_to_mask
 from dataset import CLASSES
 '''
@@ -33,9 +32,9 @@ from dataset import CLASSES
 '''
 def parse_args():
     parser = argparse.ArgumentParser(description='Hard Voting Ensemble')
-    parser.add_argument('--input_dir', type=str, default='/data/ephemeral/home/ng-youn/output',
+    parser.add_argument('--input_dir', type=str, default='/data/output',
                         help='output.csv들이 위치한 폴더의 경로를 입력해주세요.')
-    parser.add_argument('--image_dir', type=str, default='/data/ephemeral/home/data/test/DCM',
+    parser.add_argument('--image_dir', type=str, default='/data/test/DCM',
                         help='Test image의 경로')
     parser.add_argument('--threshold', type=float, default=0.6)
     parser.add_argument('--chunk_size', type=int, default=10)  # Reduced chunk size
