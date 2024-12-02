@@ -10,9 +10,9 @@ X-ray 이미지에서 사람의 뼈를 Segmentation 하는 인공지능 만들�
 
 ## **📘**Contributors
 
-|김태한|문채원|서동횐|윤남규|이재훈|장지우
+|김태한|문채원|서동환|윤남규|이재훈|장지우
 |:----:|:----:|:----:|:----:|:----:|:----:|
-| [<img src="https://github.com/user-attachments/assets/366fc4d1-3716-4214-a6ef-87f0a4c6147f" alt="" style="width:100px;100px;">](https://github.com/taehan79-kim) <br/> | [<img src="https://github.com/user-attachments/assets/ea61c11c-c577-45bb-ae8e-64dffa192402" alt="" style="width:100px;100px;">](https://github.com/mooniswan) <br/> | [<img src="https://github.com/Donghwan12" alt="" style="width:100px;100px;">](https://github.com/Donghwan127) <br/> | [<img src="https://github.com/user-attachments/assets/6bc5913f-6e59-4aae-9433-3db2c7251978" alt="" style="width:100px;100px;">]([https://github.com/0522chan](https://github.com/Namgyu-Youn)) <br/> | [<img src="https://github.com/user-attachments/assets/3ed91d99-0ad0-43ee-bb11-0aefc61a0a0e" alt="" style="width:100px;100px;">](https://github.com/syous154) <br/> | [<img src="https://github.com/user-attachments/assets/04f5faa7-05c4-4ecc-87f1-0befb53da70d" alt="" style="width:100px;100px;">](https://github.com/zangzoo) <br/> |
+| [<img src="https://avatars.githubusercontent.com/u/84124094?v=4" alt="" style="width:100px;100px;">](https://github.com/taehan79-kim) <br/> | [<img src="https://github.com/user-attachments/assets/ea61c11c-c577-45bb-ae8e-64dffa192402" alt="" style="width:100px;100px;">](https://github.com/mooniswan) <br/> | [<img src="https://avatars.githubusercontent.com/u/87591965?v=4" alt="" style="width:100px;100px;">](https://github.com/Donghwan127) <br/> | [<img src="https://avatars.githubusercontent.com/u/152387005?v=4" alt="" style="width:100px;100px;">](https://github.com/Namgyu-Youn) <br/> | [<img src="https://github.com/user-attachments/assets/3ed91d99-0ad0-43ee-bb11-0aefc61a0a0e" alt="" style="width:100px;100px;">](https://github.com/syous154) <br/> | [<img src="https://github.com/user-attachments/assets/04f5faa7-05c4-4ecc-87f1-0befb53da70d" alt="" style="width:100px;100px;">](https://github.com/zangzoo) <br/> |
 
 ## **📘**Wrap up Report
 
