@@ -1,53 +1,47 @@
 # Hand Bone Image Segmentation
 
-## **📘**Overview
+## Overview
 
-2024.11.13 10:00 ~ 2024.11.28 19:00
+- Duration : 2024.11.13 10:00 ~ 2024.11.28 19:00
+- 네이버 커넥트 재단 및 Upstage에서 주관하는 비공개 대회
+- X-ray Hand bone 이미지를 이용해 Segmentation Task를 수행하는 모델을 개발하는 대회
+- 하나의 이미지당 29개의 class를 가지고 있고 왼손, 오른손 동일한 양의 이미지가 존재
 
 
-X-ray 이미지에서 사람의 뼈를 Segmentation 하는 인공지능 만들기
-
-
-## **📘**Contributors
+## Contributors
 
 |김태한|문채원|서동환|윤남규|이재훈|장지우
 |:----:|:----:|:----:|:----:|:----:|:----:|
 | [<img src="https://avatars.githubusercontent.com/u/84124094?v=4" alt="" style="width:100px;100px;">](https://github.com/taehan79-kim) <br/> | [<img src="https://github.com/user-attachments/assets/ea61c11c-c577-45bb-ae8e-64dffa192402" alt="" style="width:100px;100px;">](https://github.com/mooniswan) <br/> | [<img src="https://avatars.githubusercontent.com/u/87591965?v=4" alt="" style="width:100px;100px;">](https://github.com/Donghwan127) <br/> | [<img src="https://avatars.githubusercontent.com/u/152387005?v=4" alt="" style="width:100px;100px;">](https://github.com/Namgyu-Youn) <br/> | [<img src="https://github.com/user-attachments/assets/3ed91d99-0ad0-43ee-bb11-0aefc61a0a0e" alt="" style="width:100px;100px;">](https://github.com/syous154) <br/> | [<img src="https://github.com/user-attachments/assets/04f5faa7-05c4-4ecc-87f1-0befb53da70d" alt="" style="width:100px;100px;">](https://github.com/zangzoo) <br/> |
 
-## **📘**Wrap up Report
+## Wrap up Report
 
 곧 채울 예정
 
-## **📘**Metrics
+## Metrics
 
 - Dice
 
-![image](https://github.com/user-attachments/assets/76719a2a-41eb-4698-b1d8-eec2bb4a3cee)
-
-![image](https://github.com/user-attachments/assets/7b88489b-ba4b-4b0a-811f-d605e7a79fee)
+<img width="494" alt="image" src="https://github.com/user-attachments/assets/34ebb94b-b230-4e45-9a51-30113299b999">
 
 
-## **📰**Tools
+## Tools
 
 - github
 - notion
 - slack
 - wandb
 
-## **📰**Folder Structure
+## Folder Structure
 
 ```
 
-📦level2-cv-semanticsegmentation-cv-14-lv3-1
+📦level2-cv-semanticsegmentation-cv-14-lv3
  ┣ 📂archive
  ┃ ┣ 📜gpu_trainer.py
  ┃ ┣ 📜trainer_hook.py
  ┃ ┣ 📜train_hook.py
  ┃ ┗ 📜tta_inference.py
- ┣ 📂docs
- ┃ ┣ 📜gdown_guide.md
- ┃ ┣ 📜github_guide.md
- ┃ ┗ 📜using_tmux_background.md
  ┣ 📂instance_seg
  ┃ ┣ 📜convert_dataset.py
  ┃ ┗ 📜yolo_train.py
@@ -87,7 +81,7 @@ X-ray 이미지에서 사람의 뼈를 Segmentation 하는 인공지능 만들�
 
 ```
 
-## **📰**Dataset Structure
+## Dataset Structure
 
 ```
 
@@ -123,10 +117,10 @@ X-ray 이미지에서 사람의 뼈를 Segmentation 하는 인공지능 만들�
 - images : 1088
     - train : 800
     - test : 288
-- 29 class : finger-1, finger-2, finger-3, finger-4, finger-5, finger-6, finger-7, finger-8, finger-9, finger-10, finger-11, finger-12, finger-13, finger-14, finger-15, finger-16, finger-17, finger-18, finger-19, Trapezium, Trapezoid, Capitate, Hamate, Scaphoid, Lunate, Triquetrum, Pisiform, Radius, Ulna
+- class : 29 
 - image size :  (2048, 2048)
 
-## **📰**Models
+## Models
 
 - UNet
 - UNet++
@@ -138,7 +132,7 @@ X-ray 이미지에서 사람의 뼈를 Segmentation 하는 인공지능 만들�
 - swinUNETR
 
 
-## **📰**Backbones
+## Backbones
 
 - ResNet
 - ResNext
@@ -148,11 +142,16 @@ X-ray 이미지에서 사람의 뼈를 Segmentation 하는 인공지능 만들�
 - maxvit
 - mit
 
-## **📰Experiments**
-![image](https://github.com/user-attachments/assets/ab78108c-302c-4d4d-a22c-bbede89bfb9e)
+
+## LB Score**
+
+- Public Score
+ <img width="806" alt="image" src="https://github.com/user-attachments/assets/b933d232-ecdb-41fe-ac3b-acf06a00311a">
+
+- Private Score
+ <img width="806" alt="image" src="https://github.com/user-attachments/assets/c96b67e0-4a76-4d7c-a36e-3e944dfdcc35">
 
 
-![image](https://github.com/user-attachments/assets/38fd64fe-8c69-422d-b418-887d88720d37)
 
 
 
