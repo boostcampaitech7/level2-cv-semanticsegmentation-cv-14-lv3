@@ -7,7 +7,6 @@
 - X-ray Hand bone 이미지를 이용해 Segmentation Task를 수행하는 모델을 개발하는 대회
 - 하나의 이미지당 29개의 class를 가지고 있고 왼손, 오른손 동일한 양의 이미지가 존재
 
-<a href="https://github.com/boostcampaitech7/level2-cv-semanticsegmentation-cv-14-lv3/tree/main/docs/Wrap_up_Report_CV14.pdf">
 
 ## Contributors
 
@@ -17,7 +16,7 @@
 
 ## Wrap up Report
 
-곧 채울 예정
+[Wrap-up Report](https://github.com/boostcampaitech7/level2-cv-semanticsegmentation-cv-14-lv3/tree/main/docs/Wrap_up_Report_CV14.pdf)
 
 ## Metrics
 
