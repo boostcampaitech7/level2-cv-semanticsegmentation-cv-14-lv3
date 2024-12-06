@@ -103,7 +103,7 @@ def create_segmentation_overlay(original_image, masks):
 
 def gradio_inference(image, threshold):
     # Load model (you may want to load this once globally)
-    model_path = './checkpoints/sample_checkpoint.pt'
+    model_path = './gradio_sample/checkpoints/sample_checkpoint.pt'
     model = load_model(model_path)
 
     # Perform inference
