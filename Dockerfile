@@ -24,3 +24,5 @@ RUN apt-get update && \
 # Install required packeages
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+
+CMD ["python", "gradio_inference.py"]

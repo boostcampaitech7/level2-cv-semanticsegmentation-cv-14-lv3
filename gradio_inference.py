@@ -1,138 +1,152 @@
 import os
 import gradio as gr
 import torch
-import torch.nn.functional as F
-import numpy as np
 import cv2
-import albumentations as A
+import numpy as np
 import pandas as pd
-from torchvision.models.segmentation import fcn_resnet50
-from ultralytics import YOLO
-import matplotlib.pyplot as plt
+import albumentations as A
+from PIL import Image
 
-# Import from your existing script
-from dataset import IND2CLASS, XRayInferenceDataset
+from torchvision.models.segmentation import fcn_resnet50
 from functions import encode_mask_to_rle
+from dataset import IND2CLASS
 
 def load_model(model_path, num_classes=29):
-    # Same model loading function as in the original script
-    model = fcn_resnet50(weights=None)
-    model.classifier[4] = torch.nn.Conv2d(512, num_classes, kernel_size=(1, 1), stride=(1, 1))
+    print(f"Loading model from {model_path}")
+    checkpoint = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)
 
-    checkpoint = torch.load(model_path)
     if isinstance(checkpoint, dict):
-        state_dict = checkpoint.get('model_state_dict', checkpoint.get('state_dict', checkpoint))
+        if 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        elif 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        else:
+            state_dict = checkpoint
+    elif hasattr(checkpoint, 'state_dict'):
+        state_dict = checkpoint.state_dict()
     else:
         state_dict = checkpoint
 
-    # Remove 'module.' prefix if present
-    if any(key.startswith('module.') for key in state_dict.keys()):
-        state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+    if not isinstance(state_dict, dict):
+        return checkpoint
 
-    model.load_state_dict(state_dict, strict=False)
+    try:
+        model = fcn_resnet50(weights=None)
+        model.classifier[4] = torch.nn.Conv2d(512, num_classes, kernel_size=(1, 1), stride=(1, 1))
+        model.load_state_dict(state_dict, strict=False)
+    except Exception as e:
+        print(f"Failed to load with FCN: {e}")
+        try:
+            model = checkpoint
+        except:
+            raise ValueError("Could not load the model")
+
+    print("\nModel loaded successfully")
     return model
 
-def prepare_image(image, img_size=1024):
-    """Prepare image for inference"""
-    # Resize and convert to appropriate format
-    tf = A.Compose([A.Resize(img_size, img_size)])
-    transformed = tf(image=image)
-    processed_image = transformed['image']
+def inference_single_image(image, model, threshold=0.4):
+    # Preprocessing
+    tf = A.Compose([
+        A.Resize(1024, 1024),
+    ])
+
+    # Convert input to numpy if it's a PIL Image
+    if isinstance(image, Image.Image):
+        image = np.array(image)
+
+    # Transform image
+    transformed = tf(image=image)['image']
 
     # Convert to tensor
-    image_tensor = torch.from_numpy(processed_image).permute(2, 0, 1).float() / 255.0
-    image_tensor = image_tensor.unsqueeze(0)  # Add batch dimension
+    input_tensor = torch.from_numpy(transformed).permute(2, 0, 1).float().unsqueeze(0)
 
-    return image_tensor
-
-def inference(model, image_tensor, threshold=0.4):
-    """Perform inference on the image"""
-    model = model.cuda()
+    # Inference
     model.eval()
-
     with torch.no_grad():
-        image_tensor = image_tensor.cuda()
-        outputs = model(image_tensor)['out']
-
-        # Resize outputs to original image size
-        outputs = F.interpolate(outputs, size=(2048, 2048), mode="bilinear")
+        outputs = model(input_tensor)['out']
         outputs = torch.sigmoid(outputs)
         outputs = (outputs > threshold).detach().cpu().numpy()
 
-    return outputs
+    # Visualization
+    class_masks = []
+    for c, segm in enumerate(outputs[0]):
+        # Resize back to original image size
+        resized_mask = cv2.resize(segm.astype(np.uint8) * 255,
+                                  (image.shape[1], image.shape[0]),
+                                  interpolation=cv2.INTER_NEAREST)
+        class_masks.append((IND2CLASS[c], resized_mask))
 
-def visualize_segmentation(original_image, outputs):
-    """Create visualization of segmentation masks"""
-    plt.figure(figsize=(15, 5))
+    return class_masks
 
-    # Original image
-    plt.subplot(1, len(outputs[0]) + 1, 1)
-    plt.imshow(original_image)
-    plt.title('Original Image')
-    plt.axis('off')
+def create_segmentation_overlay(original_image, masks):
+    # Convert original image to RGB if it's grayscale
+    if len(original_image.shape) == 2:
+        original_image = cv2.cvtColor(original_image, cv2.COLOR_GRAY2RGB)
 
-    # Segmentation masks
-    for i, mask in enumerate(outputs[0]):
-        plt.subplot(1, len(outputs[0]) + 1, i + 2)
-        overlay = original_image.copy()
-        overlay[mask] = [255, 0, 0]  # Red mask overlay
-        plt.imshow(overlay)
-        plt.title(f'Mask: {IND2CLASS[i]}')
-        plt.axis('off')
+    # Create overlay with different colors for each class
+    overlay = original_image.copy()
+    colors = [
+        (255, 0, 0),   # Red
+        (0, 255, 0),   # Green
+        (0, 0, 255),   # Blue
+        (255, 255, 0), # Yellow
+        (255, 0, 255), # Magenta
+    ]
 
-    plt.tight_layout()
+    for idx, (class_name, mask) in enumerate(masks):
+        color = colors[idx % len(colors)]
+        overlay[mask > 0] = color
 
-    # Save the plot to a temporary file
-    output_path = 'segmentation_result.png'
-    plt.savefig(output_path)
-    plt.close()
+    # Blend original and overlay
+    blended = cv2.addWeighted(original_image, 0.5, overlay, 0.5, 0)
+    return blended
 
-    return output_path
-
-def xray_segmentation(input_image, model_path, threshold):
-    """Main function to process input image"""
-    # Load model
+def gradio_inference(image, threshold):
+    # Load model (you may want to load this once globally)
+    model_path = './checkpoints/sample_checkpoint.pt'
     model = load_model(model_path)
 
-    # Prepare image
-    image_tensor = prepare_image(input_image)
-
     # Perform inference
-    outputs = inference(model, image_tensor, threshold)
+    masks = inference_single_image(image, model, threshold)
 
-    # Visualize results
-    result_path = visualize_segmentation(input_image, outputs)
+    # Create overlay
+    overlay = create_segmentation_overlay(np.array(image), masks)
 
-    return result_path
+    # Prepare results for display
+    result_images = [overlay]
+    result_labels = [', '.join([name for name, _ in masks])]  # Convert list of class names to single string
 
-def create_gradio_interface():
-    """Create Gradio interface for X-ray segmentation"""
-    demo = gr.Interface(
-        fn=xray_segmentation,
+    # Add individual class masks
+    for class_name, mask in masks:
+        result_images.append(mask)
+        result_labels.append(f'{class_name} Mask')
+
+    return result_images, result_labels
+
+def launch_gradio():
+    iface = gr.Interface(
+        fn=gradio_inference,
         inputs=[
-            gr.Image(type="numpy", label="Upload X-ray Image"),
-            gr.Textbox(
-                value="./checkpoints/best_model.pt",
-                label="Model Path"
-            ),
-            gr.Slider(
-                minimum=0.1,
-                maximum=1.0,
-                value=0.4,
-                step=0.1,
-                label="Threshold"
-            )
+            gr.Image(type='pil', label='Input X-Ray Image'),
+            gr.Slider(minimum=0, maximum=1, value=0.4, label='Segmentation Threshold')
         ],
-        outputs=gr.Image(type="filepath", label="Segmentation Result"),
-        title="X-ray Image Segmentation",
-        description="Upload an X-ray image to perform multi-class segmentation"
+        outputs=[
+            gr.Gallery(label='Segmentation Results'),
+            gr.Label(label='Result Descriptions')
+        ],
+        title='X-Ray Bone Segmentation',
+        description='Upload an X-Ray image to perform semantic segmentation.',
+        examples=[
+            ['./example_xray1.jpg', 0.4],
+            ['./example_xray2.jpg', 0.4]
+        ]
     )
 
-    return demo
+    return iface
 
 def main():
-    demo = create_gradio_interface()
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    iface = launch_gradio()
+    iface.launch()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
