@@ -1,152 +1,76 @@
-import os
-import gradio as gr
-import torch
-import cv2
+'''
+- Step1. Load the ckpt
+- Step2. Decode (mask -> rle)
+- Step3. Masked to the image (predict)
+- Step4. Encode (rle -> mask)
+- Step5. Return the image
+'''
+
+import os, cv2, torch
+import streamlit
 import numpy as np
-import pandas as pd
+import gradio as gr
 import albumentations as A
-from PIL import Image
-
+import torch.nn.functional as F
 from torchvision.models.segmentation import fcn_resnet50
-from functions import encode_mask_to_rle
-from dataset import IND2CLASS
 
-def load_model(model_path, num_classes=29):
-    print(f"Loading model from {model_path}")
-    checkpoint = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)
+# Import from other files
+from dataset import CLASSES, PALETTE, IND2CLASS, XRayInferenceDataset
+from functions import encode_mask_to_rle, decode_rle_to_mask
+from inference import load_model
+from tools.streamlit.vis_test import get_class_color, overlay_masks
 
-    if isinstance(checkpoint, dict):
-        if 'model_state_dict' in checkpoint:
-            state_dict = checkpoint['model_state_dict']
-        elif 'state_dict' in checkpoint:
-            state_dict = checkpoint['state_dict']
-        else:
-            state_dict = checkpoint
-    elif hasattr(checkpoint, 'state_dict'):
-        state_dict = checkpoint.state_dict()
-    else:
-        state_dict = checkpoint
 
-    if not isinstance(state_dict, dict):
-        return checkpoint
-
-    try:
-        model = fcn_resnet50(weights=None)
-        model.classifier[4] = torch.nn.Conv2d(512, num_classes, kernel_size=(1, 1), stride=(1, 1))
-        model.load_state_dict(state_dict, strict=False)
-    except Exception as e:
-        print(f"Failed to load with FCN: {e}")
-        try:
-            model = checkpoint
-        except:
-            raise ValueError("Could not load the model")
-
-    print("\nModel loaded successfully")
-    return model
-
-def inference_single_image(image, model, threshold=0.4):
-    # Preprocessing
-    tf = A.Compose([
-        A.Resize(1024, 1024),
+def test(model, image, thr=0.5):
+    # Preprocess
+    transform = A.Compose([
+        A.Resize(512, 512),
     ])
 
-    # Convert input to numpy if it's a PIL Image
-    if isinstance(image, Image.Image):
-        image = np.array(image)
+    # Convert to RGB if needed
+    if len(image.shape) == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
 
-    # Transform image
-    transformed = tf(image=image)['image']
+    transformed = transform(image=image)['image']
 
-    # Convert to tensor
+    # Normalize and convert to tensor
     input_tensor = torch.from_numpy(transformed).permute(2, 0, 1).float().unsqueeze(0)
 
-    # Inference
-    model.eval()
     with torch.no_grad():
         outputs = model(input_tensor)['out']
+        outputs = F.interpolate(outputs, size=(2048, 2048), mode="bilinear")
         outputs = torch.sigmoid(outputs)
-        outputs = (outputs > threshold).detach().cpu().numpy()
+        outputs = (outputs > thr).detach().numpy()
 
-    # Visualization
-    class_masks = []
-    for c, segm in enumerate(outputs[0]):
-        # Resize back to original image size
-        resized_mask = cv2.resize(segm.astype(np.uint8) * 255,
-                                  (image.shape[1], image.shape[0]),
-                                  interpolation=cv2.INTER_NEAREST)
-        class_masks.append((IND2CLASS[c], resized_mask))
+    return outputs[0]
 
-    return class_masks
-
-def create_segmentation_overlay(original_image, masks):
-    # Convert original image to RGB if it's grayscale
-    if len(original_image.shape) == 2:
-        original_image = cv2.cvtColor(original_image, cv2.COLOR_GRAY2RGB)
-
-    # Create overlay with different colors for each class
-    overlay = original_image.copy()
-    colors = [
-        (255, 0, 0),   # Red
-        (0, 255, 0),   # Green
-        (0, 0, 255),   # Blue
-        (255, 255, 0), # Yellow
-        (255, 0, 255), # Magenta
-    ]
-
-    for idx, (class_name, mask) in enumerate(masks):
-        color = colors[idx % len(colors)]
-        overlay[mask > 0] = color
-
-    # Blend original and overlay
-    blended = cv2.addWeighted(original_image, 0.5, overlay, 0.5, 0)
-    return blended
-
-def gradio_inference(image, threshold):
-    # Load model (you may want to load this once globally)
-    model_path = './gradio_sample/checkpoints/sample_checkpoint.pt'
+def segmentation_inference(image, model_path='./gradio_sample/checkpoints/sample_checkpoint.pt'):
+    # Load model
     model = load_model(model_path)
 
-    # Perform inference
-    masks = inference_single_image(image, model, threshold)
+    # Process segmentation
+    masks = test(model, image)
+    annotations = ### rle ###
 
-    # Create overlay
-    overlay = create_segmentation_overlay(np.array(image), masks)
+    # Overlay masks
+    result = overlay_masks(image, masks, annotations)
 
-    # Prepare results for display
-    result_images = [overlay]
-    result_labels = [', '.join([name for name, _ in masks])]  # Convert list of class names to single string
-
-    # Add individual class masks
-    for class_name, mask in masks:
-        result_images.append(mask)
-        result_labels.append(f'{class_name} Mask')
-
-    return result_images, result_labels
-
-def launch_gradio():
-    iface = gr.Interface(
-        fn=gradio_inference,
-        inputs=[
-            gr.Image(type='pil', label='Input X-Ray Image'),
-            gr.Slider(minimum=0, maximum=1, value=0.4, label='Segmentation Threshold')
-        ],
-        outputs=[
-            gr.Gallery(label='Segmentation Results'),
-            gr.Label(label='Result Descriptions')
-        ],
-        title='X-Ray Bone Segmentation',
-        description='Upload an X-Ray image to perform semantic segmentation.',
-        examples=[
-            ['./example_xray1.jpg', 0.4],
-            ['./example_xray2.jpg', 0.4]
-        ]
-    )
-
-    return iface
+    return result
 
 def main():
-    iface = launch_gradio()
-    iface.launch()
+    iface = gr.Interface(
+        fn=segmentation_inference,
+        inputs=[
+            gr.Image(type="numpy", label="Input X-ray Image"),
+        ],
+        outputs=[
+            gr.Image(type="numpy", label="Segmentation Result")
+        ],
+        title="X-ray Image Segmentation",
+        description="Upload an X-ray image for bone segmentation"
+    )
 
-if __name__ == '__main__':
+    iface.launch(share=True)
+
+if __name__ == "__main__":
     main()
