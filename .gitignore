@@ -23,6 +23,7 @@ egg-info
 # Virtual environment files
 venv
 .env
+.gradio
 
 # Source code management files
 .svn
