@@ -1,12 +1,10 @@
-FROM nvidia/cuda:12.1.0-base-ubuntu20.04
-MAINTANER Namgyu-Youn <yynk2012@gmail.com>
+# 베이스 이미지 선택
+FROM python:3.9-slim
 
+# 작업 디렉토리 설정
+WORKDIR /app
 
-ARG PYTHON
-ENV PYTHON=$PYTHON
-ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
-ENV PIP_ROOT_USER_ACTION=ignore
-
+# 필요한 시스템 패키지 설치
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
@@ -19,10 +17,13 @@ RUN apt-get update && \
     libsm6 \
     libxrender1 \
     libfontconfig1 \
-    libgl1-mesa-glx \
+    libgl1-mesa-glx
+
+# requirements.txt 파일 복사 (프로젝트 루트에 있어야 함)
+COPY requirements.txt .
 
 # Install required packeages
-COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-CMD ["python", "gradio_inference.py"]
+# 프로젝트 파일 복사
+COPY . .
