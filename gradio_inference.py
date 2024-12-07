@@ -1,9 +1,8 @@
 '''
 - Step1. Load the ckpt
-- Step2. Decode (mask -> rle)
-- Step3. Masked to the image (predict)
-- Step4. Encode (rle -> mask)
-- Step5. Return the image
+- Step2. Masking to the image (predict)
+- Step3. Encode (rle -> mask)
+- Step4. Return the image (gradio)
 '''
 
 import os, cv2, torch
@@ -45,15 +44,15 @@ def test(model, image, thr=0.5):
     return outputs[0]
 
 def segmentation_inference(image, model_path='./gradio_sample/checkpoints/sample_checkpoint.pt'):
+    """ main script file"""
     # Load model
     model = load_model(model_path)
 
     # Process segmentation
     masks = test(model, image)
-    annotations = ### rle ###
 
     # Overlay masks
-    result = overlay_masks(image, masks, annotations)
+    result = overlay_masks(image, masks)
 
     return result
 
