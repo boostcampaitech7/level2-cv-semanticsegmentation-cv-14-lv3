@@ -7,7 +7,7 @@ import argparse
 
 # Load CLASSSES and PAELLETTE
 from dataset import CLASSES, PALETTE
-
+from functions import decode_rle_to_mask
 '''
 CLASSES = [
     'Trapezium', 'Trapezoid', 'Triquetrum', 'Pisiform'
@@ -51,22 +51,6 @@ def load_annotations(csv_path):
         st.error(f"CSV file not found: {csv_path}")
         return pd.DataFrame(columns=["image_name", "class", "rle"])
 
-def rle_to_mask(rle, shape):
-    mask = np.zeros(shape[0] * shape[1], dtype=np.uint8)
-
-    if pd.isna(rle) or not rle.strip():
-        return mask.reshape(shape).T
-
-    try:
-        rle_pairs = np.array([int(x) for x in rle.split()]).reshape(-1, 2)
-        for start, length in rle_pairs:
-            mask[start:start + length] = 1
-    except (ValueError, TypeError) as e:
-        st.warning(f"Invalid RLE format: {str(e)}")
-        return mask.reshape(shape).T
-
-    return mask.reshape(shape).T
-
 def rotate_and_flip_mask(mask, angle=90, flip_horizontal=False):
     if angle == 90:
         mask = np.rot90(mask, k=3)
@@ -101,7 +85,7 @@ def overlay_masks(image, image_name, annotations, visualize, opacity):
             continue
 
         try:
-            mask = rle_to_mask(rle, image.shape[:2])
+            mask = decode_rle_to_mask(rle, image.shape[:2])
             mask = rotate_and_flip_mask(mask, angle=90, flip_horizontal=True)
 
             overlay_color = np.array(color) * opacity
