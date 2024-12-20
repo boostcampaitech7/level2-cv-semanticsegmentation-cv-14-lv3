@@ -16,7 +16,7 @@
 
 ## 📝 Wrap up Report
 
-<a href="github.com/boostcampaitech7/level2-cv-semanticsegmentation-cv-14-lv3/tree/main/docs/Wrap_up_Report_CV14.pdf">
+<a href="https://github.com/boostcampaitech7/level2-cv-semanticsegmentation-cv-14-lv3/blob/main/docs/Wrap_up_Report_CV14.pdf">
   <img src="https://img.shields.io/badge/WrapUp_Report-white?style=for-the-badge&logo=adobeacrobatreader&logoColor=red" alt="Data-Centric report">
 
 ## Metrics
