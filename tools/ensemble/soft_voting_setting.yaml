@@ -1,0 +1,28 @@
+image_root: /data/ephemeral/home/data/test/DCM
+
+root_path: /data/ephemeral/home/ohs/level2-cv-semanticsegmentation-cv-12-lv3
+
+CLASSES: [
+    'finger-1', 'finger-2', 'finger-3', 'finger-4', 'finger-5',
+    'finger-6', 'finger-7', 'finger-8', 'finger-9', 'finger-10',
+    'finger-11', 'finger-12', 'finger-13', 'finger-14', 'finger-15',
+    'finger-16', 'finger-17', 'finger-18', 'finger-19', 'Trapezium',
+    'Trapezoid', 'Capitate', 'Hamate', 'Scaphoid', 'Lunate',
+    'Triquetrum', 'Pisiform', 'Radius', 'Ulna',
+]
+
+batch_size: 2
+num_workers: 2
+
+threshold: 0.5
+
+model_paths:
+  512: []
+  1024: 
+    - /data/checkpoint/best_model1.pt
+    - /data/checkpoint/best_model2.pt
+  1536: []
+  2048: []
+
+save_dir: ./soft_ensemble
+output_name: output.csv
